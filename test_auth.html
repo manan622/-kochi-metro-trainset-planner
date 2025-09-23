@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Kochi Metro API</title>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+</head>
+<body>
+    <h1>Kochi Metro API Test</h1>
+    <div id="results"></div>
+    
+    <script>
+        const resultsDiv = document.getElementById('results');
+        
+        async function testAuth() {
+            try {
+                resultsDiv.innerHTML += '<h2>Testing Authentication...</h2>';
+                
+                // Test login
+                const loginResponse = await axios.post('http://localhost:8000/api/auth/login', {
+                    username: 'admin',
+                    password: 'admin123'
+                });
+                
+                resultsDiv.innerHTML += '<p><strong>Login Response:</strong></p>';
+                resultsDiv.innerHTML += '<pre>' + JSON.stringify(loginResponse.data, null, 2) + '</pre>';
+                
+                const token = loginResponse.data.access_token;
+                
+                // Test /me endpoint
+                const meResponse = await axios.get('http://localhost:8000/api/auth/me', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                resultsDiv.innerHTML += '<p><strong>User Info Response:</strong></p>';
+                resultsDiv.innerHTML += '<pre>' + JSON.stringify(meResponse.data, null, 2) + '</pre>';
+                
+                // Test available users
+                const usersResponse = await axios.get('http://localhost:8000/api/auth/users/list');
+                resultsDiv.innerHTML += '<p><strong>Available Users:</strong></p>';
+                resultsDiv.innerHTML += '<pre>' + JSON.stringify(usersResponse.data, null, 2) + '</pre>';
+                
+                resultsDiv.innerHTML += '<p style="color: green;"><strong>✅ All API tests passed!</strong></p>';
+                
+            } catch (error) {
+                console.error('Error:', error);
+                resultsDiv.innerHTML += '<p style="color: red;"><strong>❌ Error:</strong> ' + error.message + '</p>';
+                if (error.response) {
+                    resultsDiv.innerHTML += '<pre>' + JSON.stringify(error.response.data, null, 2) + '</pre>';
+                }
+            }
+        }
+        
+        // Run test when page loads
+        testAuth();
+    </script>
+</body>
+</html>
