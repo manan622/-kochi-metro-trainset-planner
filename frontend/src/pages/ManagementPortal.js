@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
-import { trainsetAPI } from '../services/api';
-import api from '../services/api';
+import api, { trainsetAPI } from '../services/api';
 import { 
   BarChart3, 
   TrendingUp, 

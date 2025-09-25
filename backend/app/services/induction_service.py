@@ -85,11 +85,29 @@ class InductionPlanner:
             else:
                 metadata["job_cards"] = "No pending maintenance"
                 
-            # 3. Basic information - skip complex evaluations for now
-            metadata["branding_priority"] = "Not evaluated"
-            metadata["mileage"] = f"{trainset.current_mileage:,.0f} km"
-            metadata["cleaning_slot"] = "Not evaluated"
-            metadata["stabling_bay"] = trainset.stabling_bay or "Not assigned"
+            # 3. Check Branding Priorities  
+            branding_info = self._check_branding_priorities(trainset, target_date)
+            if branding_info["reasons"]:
+                reasons.extend(branding_info["reasons"])
+            metadata["branding_priority"] = branding_info["summary"]
+            
+            # 4. Check Mileage Balance
+            mileage_info = self._check_mileage_balance(trainset)
+            if mileage_info["reasons"]:
+                reasons.extend(mileage_info["reasons"])
+            metadata["mileage"] = mileage_info["summary"]
+            
+            # 5. Check Cleaning Slots
+            cleaning_info = self._check_cleaning_slots(trainset, target_date)
+            if cleaning_info["reasons"]:
+                reasons.extend(cleaning_info["reasons"])
+            metadata["cleaning_slot"] = cleaning_info["summary"]
+            
+            # 6. Check Stabling Bay
+            stabling_info = self._check_stabling_bay(trainset)
+            if stabling_info["reasons"]:
+                reasons.extend(stabling_info["reasons"])
+            metadata["stabling_bay"] = stabling_info["summary"]
             
             # Determine final status based on evaluation
             final_status = self._determine_final_status(conflict_alerts, reasons)
@@ -195,31 +213,43 @@ class InductionPlanner:
     
     def _check_branding_priorities(self, trainset: Trainset, target_date: datetime) -> Dict[str, Any]:
         """Check branding priority commitments."""
-        info = {"reasons": [], "summary": "Low"}
+        info = {"reasons": [], "summary": "No branding"}
         
-        active_priorities = [
-            bp for bp in trainset.branding_priorities
-            if bp.contract_start_date <= target_date <= bp.contract_end_date
-        ]
+        try:
+            active_priorities = [
+                bp for bp in trainset.branding_priorities
+                if bp.contract_start_date <= target_date <= bp.contract_end_date
+            ]
+        except Exception as e:
+            print(f"Error accessing branding priorities for {trainset.number}: {str(e)}")
+            info["summary"] = "Error accessing branding data"
+            return info
         
         if not active_priorities:
-            info["summary"] = "Low"
+            info["summary"] = "No branding"
             return info
             
-        highest_priority = max(active_priorities, key=lambda x: {
+        # Find the highest priority branding
+        priority_values = {
             BrandingPriorityLevel.HIGH: 3,
             BrandingPriorityLevel.MEDIUM: 2, 
             BrandingPriorityLevel.LOW: 1
-        }.get(x.priority_level, 0))
+        }
+        
+        highest_priority = max(active_priorities, key=lambda x: priority_values.get(x.priority_level, 0))
+        
+        brand_name = highest_priority.brand_name
+        priority_level = highest_priority.priority_level.value.capitalize()
         
         if highest_priority.priority_level == BrandingPriorityLevel.HIGH:
-            info["reasons"].append(f"High priority branding commitment: {highest_priority.brand_name}")
-            info["summary"] = f"High ({highest_priority.brand_name})"
+            info["reasons"].append(f"High priority branding commitment: {brand_name}")
+            info["summary"] = f"High priority - {brand_name}"
         elif highest_priority.priority_level == BrandingPriorityLevel.MEDIUM:
-            info["reasons"].append(f"Medium priority branding: {highest_priority.brand_name}")
-            info["summary"] = f"Medium ({highest_priority.brand_name})"
+            info["reasons"].append(f"Medium priority branding: {brand_name}")
+            info["summary"] = f"Medium priority - {brand_name}"
         else:
-            info["summary"] = f"Low ({highest_priority.brand_name})"
+            info["reasons"].append(f"Low priority branding: {brand_name}")
+            info["summary"] = f"Low priority - {brand_name}"
             
         return info
     
@@ -228,9 +258,8 @@ class InductionPlanner:
         info = {"reasons": [], "summary": f"{trainset.current_mileage:,.0f} km"}
         
         # Get average mileage across all trainsets
-        avg_mileage = self.db.query(Trainset).with_entities(
-            self.db.func.avg(Trainset.current_mileage)
-        ).scalar() or 0
+        from sqlalchemy import func
+        avg_mileage = self.db.query(func.avg(Trainset.current_mileage)).scalar() or 0
         
         mileage_diff = trainset.current_mileage - avg_mileage
         
@@ -289,29 +318,48 @@ class InductionPlanner:
         
         # Critical issues that make trainset unfit
         critical_issues = [
-            "Expired Fitness Certificate",
+            "Expired",
             "Missing fitness certificates", 
-            "Critical maintenance"
+            "Critical maintenance",
+            "High priority"
         ]
         
-        # Check for critical issues
+        # Check for critical issues that force UNFIT status
         for alert in conflict_alerts:
             for critical in critical_issues:
                 if critical.lower() in alert.lower():
                     return TrainsetStatus.UNFIT
                     
-        # Check for pending maintenance
-        pending_maintenance = any("maintenance pending" in reason.lower() for reason in reasons)
-        if pending_maintenance:
-            return TrainsetStatus.UNFIT
+        # Check for pending maintenance in reasons
+        for reason in reasons:
+            if "critical maintenance pending" in reason.lower():
+                return TrainsetStatus.UNFIT
+            # Check for expired certificates
+            if "expired" in reason.lower() and "certificate" in reason.lower():
+                return TrainsetStatus.UNFIT
+        
+        # Check for high priority branding (should be FIT for service)
+        for reason in reasons:
+            if "high priority branding" in reason.lower():
+                return TrainsetStatus.FIT
+                
+        # Check for medium priority branding (should be FIT for service)
+        for reason in reasons:
+            if "medium priority branding" in reason.lower():
+                return TrainsetStatus.FIT
+        
+        # If no specific issues and trainset has maintenance, mark as STANDBY
+        has_maintenance = any("maintenance pending" in reason.lower() for reason in reasons)
+        if has_maintenance:
+            return TrainsetStatus.STANDBY
             
-        # Check for high priority branding
-        high_priority_branding = any("high priority branding" in reason.lower() for reason in reasons)
-        if high_priority_branding:
+        # If low priority branding or no branding, prefer FIT for normal operations
+        has_low_branding = any("low priority branding" in reason.lower() for reason in reasons)
+        if has_low_branding:
             return TrainsetStatus.FIT
             
-        # Default to standby if no clear indicators
-        return TrainsetStatus.STANDBY
+        # Default to FIT if no issues found
+        return TrainsetStatus.FIT
     
     def _create_comprehensive_reasoning(
         self, 
@@ -324,18 +372,37 @@ class InductionPlanner:
         
         base_text = f"Trainset {trainset.number} marked {status.value}"
         
+        # Prioritize critical alerts first
         if conflict_alerts:
             alert_text = " and ".join(conflict_alerts)
-            base_text += f" because {alert_text}"
+            base_text += f" due to {alert_text.lower()}"
         elif reasons:
-            # Pick the most relevant reason
-            primary_reason = reasons[0]
-            base_text += f" because {primary_reason.lower()}"
-        else:
-            base_text += " based on standard operating parameters"
+            # Categorize reasons by importance
+            critical_reasons = [r for r in reasons if any(word in r.lower() for word in ['expired', 'critical', 'high priority'])]
+            branding_reasons = [r for r in reasons if 'branding' in r.lower()]
+            maintenance_reasons = [r for r in reasons if 'maintenance' in r.lower() and r not in critical_reasons]
+            other_reasons = [r for r in reasons if r not in critical_reasons + branding_reasons + maintenance_reasons]
             
-        # Add additional context if multiple issues
-        if len(reasons) > 1:
-            base_text += f". Additional considerations: {'; '.join(reasons[1:])}"
+            # Build reasoning in order of priority
+            primary_reasons = []
+            
+            if critical_reasons:
+                primary_reasons.extend(critical_reasons)
+            if branding_reasons:
+                primary_reasons.extend(branding_reasons)
+            if maintenance_reasons:
+                primary_reasons.extend(maintenance_reasons)
+            if other_reasons:
+                primary_reasons.extend(other_reasons)
+            
+            if primary_reasons:
+                base_text += f": {primary_reasons[0].lower()}"
+                
+                # Add additional context if multiple issues
+                if len(primary_reasons) > 1:
+                    additional = "; ".join(primary_reasons[1:3])  # Limit to 2 additional reasons
+                    base_text += f"; {additional}"
+        else:
+            base_text += " based on standard operating parameters with no specific issues identified"
             
         return base_text
