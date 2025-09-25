@@ -5,8 +5,9 @@ from datetime import datetime
 
 from app.models.database import get_db
 from app.models.models import Trainset, User
-from app.services.auth_service import get_current_user, require_any_role
+from app.services.auth_service import get_current_user, require_any_role, require_management
 from app.services.induction_service import InductionPlanner
+from app.utils.csv_importer import generate_sample_csv, CSVImporter, create_stabling_bays
 from app.schemas import (
     TrainsetResponse, 
     TrainsetDetailResponse, 
@@ -206,4 +207,88 @@ async def get_trainset_evaluation(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error evaluating trainset: {str(e)}"
+        )
+
+@router.post("/data/load-sample")
+async def load_sample_data(
+    num_trainsets: int = Query(25, description="Number of sample trainsets to generate"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_management)
+):
+    """Load sample trainset data for testing and demonstration.
+    
+    Access: Management only
+    """
+    try:
+        import os
+        import tempfile
+        
+        # Create temporary CSV file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as temp_file:
+            csv_path = temp_file.name
+        
+        # Generate sample CSV data
+        generate_sample_csv(csv_path, num_trainsets)
+        
+        # Import the data
+        with CSVImporter(db) as importer:
+            results = importer.import_trainsets_from_csv(csv_path)
+        
+        # Create stabling bays
+        create_stabling_bays(db)
+        
+        # Clean up temporary file
+        os.unlink(csv_path)
+        
+        return {
+            "message": "Sample data loaded successfully",
+            "imported_trainsets": results["imported"],
+            "updated_trainsets": results["updated"],
+            "errors": results["errors"],
+            "stabling_bays_created": True
+        }
+        
+    except Exception as e:
+        print(f"Error loading sample data: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error loading sample data: {str(e)}"
+        )
+
+@router.delete("/data/clear")
+async def clear_all_data(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_management)
+):
+    """Clear all trainset data from the database.
+    
+    Access: Management only
+    """
+    try:
+        from app.models.models import (
+            CleaningSlot, MileageRecord, BrandingPriority, 
+            JobCard, FitnessCertificate, Trainset, StablingBay
+        )
+        
+        # Delete in order to respect foreign key constraints
+        db.query(CleaningSlot).delete()
+        db.query(MileageRecord).delete()
+        db.query(BrandingPriority).delete()
+        db.query(JobCard).delete()
+        db.query(FitnessCertificate).delete()
+        db.query(Trainset).delete()
+        db.query(StablingBay).delete()
+        
+        db.commit()
+        
+        return {
+            "message": "All trainset data cleared successfully"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        print(f"Error clearing data: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error clearing data: {str(e)}"
         )

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { trainsetAPI } from '../services/api';
+import api from '../services/api';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -9,7 +10,10 @@ import {
   Clock,
   Calendar,
   Train,
-  Settings
+  Settings,
+  Database,
+  Download,
+  Trash2
 } from 'lucide-react';
 
 const ManagementPortal = () => {
@@ -17,6 +21,8 @@ const ManagementPortal = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [dataMessage, setDataMessage] = useState('');
 
   useEffect(() => {
     fetchFleetStatus();
@@ -32,6 +38,40 @@ const ManagementPortal = () => {
       console.error('Error fetching fleet status:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadSampleData = async () => {
+    try {
+      setDataLoading(true);
+      setDataMessage('');
+      const response = await api.post('/api/data/load-sample?num_trainsets=25');
+      setDataMessage(`Successfully loaded ${response.data.imported_trainsets} trainsets`);
+      await fetchFleetStatus(); // Refresh the data
+    } catch (error) {
+      setDataMessage(`Error loading data: ${error.response?.data?.detail || error.message}`);
+      console.error('Error loading sample data:', error);
+    } finally {
+      setDataLoading(false);
+    }
+  };
+
+  const clearAllData = async () => {
+    if (!window.confirm('Are you sure you want to clear all trainset data? This action cannot be undone.')) {
+      return;
+    }
+    
+    try {
+      setDataLoading(true);
+      setDataMessage('');
+      await api.delete('/api/data/clear');
+      setDataMessage('All trainset data cleared successfully');
+      await fetchFleetStatus(); // Refresh the data
+    } catch (error) {
+      setDataMessage(`Error clearing data: ${error.response?.data?.detail || error.message}`);
+      console.error('Error clearing data:', error);
+    } finally {
+      setDataLoading(false);
     }
   };
 
@@ -107,6 +147,52 @@ const ManagementPortal = () => {
             <p className="text-red-800">{error}</p>
           </div>
         )}
+
+        {dataMessage && (
+          <div className={`border rounded-md p-4 ${
+            dataMessage.includes('Error') || dataMessage.includes('cleared')
+              ? 'bg-red-50 border-red-200 text-red-800'
+              : 'bg-green-50 border-green-200 text-green-800'
+          }`}>
+            <p>{dataMessage}</p>
+          </div>
+        )}
+
+        {/* Data Management Section */}
+        <div className="bg-white rounded-lg shadow">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h3 className="text-lg font-medium text-gray-900 flex items-center">
+              <Database className="h-5 w-5 mr-2 text-metro-primary" />
+              Train Dataset Management
+            </h3>
+            <p className="text-sm text-gray-600 mt-1">
+              Load sample data or manage existing trainset information
+            </p>
+          </div>
+          <div className="p-6">
+            <div className="flex flex-wrap gap-4">
+              <button
+                onClick={loadSampleData}
+                disabled={dataLoading}
+                className="bg-metro-primary text-white px-4 py-2 rounded-md hover:bg-metro-secondary transition-colors flex items-center disabled:opacity-50"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                {dataLoading ? 'Loading...' : 'Load Sample Data (25 Trainsets)'}
+              </button>
+              <button
+                onClick={clearAllData}
+                disabled={dataLoading}
+                className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 transition-colors flex items-center disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                {dataLoading ? 'Processing...' : 'Clear All Data'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              Sample data includes trainsets with various statuses, maintenance records, certificates, and job cards for testing.
+            </p>
+          </div>
+        </div>
 
         {fleetStatus && (
           <>

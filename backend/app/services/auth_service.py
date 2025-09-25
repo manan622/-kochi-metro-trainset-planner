@@ -1,8 +1,6 @@
-from datetime import datetime, timedelta
 from typing import Optional
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -19,19 +17,22 @@ SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here-please-change-in-prod
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Simple demo authentication - no bcrypt needed
+# DO NOT use in production - passwords stored in plaintext
 
 # Bearer token security
 security = HTTPBearer()
 
+# Simple authentication without bcrypt for demo purposes
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    # Simple comparison for demo - DO NOT use in production
+    return plain_password == hashed_password
 
 def get_password_hash(password: str) -> str:
     """Hash a password."""
-    return pwd_context.hash(password)
+    # Simple passthrough for demo - DO NOT use in production  
+    return password
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """Create a JWT access token."""
@@ -146,11 +147,11 @@ def create_dummy_users(db: Session):
         # Check if user already exists
         existing_user = get_user_by_username(db, user_data["username"])
         if not existing_user:
-            hashed_password = get_password_hash(user_data["password"])
+            # Store password as plaintext for demo - DO NOT use in production
             db_user = User(
                 username=user_data["username"],
                 email=user_data["email"],
-                hashed_password=hashed_password,
+                hashed_password=user_data["password"],  # Direct plaintext storage
                 role=user_data["role"],
                 is_active=True
             )
