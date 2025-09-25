@@ -22,7 +22,18 @@ from app.models.models import (
 from app.services.gemini_service import get_gemini_service, initialize_gemini_service
 from app.services.huggingface_service import get_huggingface_service, initialize_huggingface_service
 from app.services.ocr_service import get_ocr_service, initialize_ocr_service
-from app.services.auth_service import create_access_token, verify_token, get_password_hash, verify_password
+from app.services.auth_service import create_access_token, verify_token, get_password_hash
+from passlib.context import CryptContext
+
+# Initialize bcrypt context for cleaning system
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def verify_cleaning_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password against its bcrypt hash for cleaning system."""
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception:
+        return False
 from pydantic import BaseModel, EmailStr
 from typing import Union
 
@@ -155,6 +166,224 @@ async def get_current_cleaning_user(
         )
 
 # Authentication endpoints
+@router.get("/setup/seed")
+async def seed_cleaning_data(db: Session = Depends(get_db)):
+    """Seed cleaning teams and users - for development purposes."""
+    try:
+        # Import here to avoid circular imports
+        from datetime import datetime, timedelta
+        import json
+        from passlib.context import CryptContext
+        
+        pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+        
+        # Check if cleaning teams already exist
+        existing_teams = db.query(CleaningTeam).count()
+        if existing_teams > 0:
+            return {"message": "Cleaning data already exists", "teams_count": existing_teams}
+        
+        # Create cleaning teams
+        teams_data = [
+            {
+                "team_id": "CT-001",
+                "team_name": "Night Shift Alpha",
+                "team_leader": "John Smith",
+                "team_members": json.dumps(["John Smith", "Maria Garcia", "Ahmed Hassan", "Priya Patel"]),
+                "shift_start": datetime.now().replace(hour=22, minute=0, second=0, microsecond=0),
+                "shift_end": datetime.now().replace(hour=6, minute=0, second=0, microsecond=0) + timedelta(days=1),
+                "specialization": "Interior Deep Cleaning",
+                "contact_number": "+91-9876543210"
+            },
+            {
+                "team_id": "CT-002",
+                "team_name": "Day Shift Beta",
+                "team_leader": "Sarah Johnson",
+                "team_members": json.dumps(["Sarah Johnson", "Rajesh Kumar", "Emma Davis", "Carlos Rodriguez"]),
+                "shift_start": datetime.now().replace(hour=8, minute=0, second=0, microsecond=0),
+                "shift_end": datetime.now().replace(hour=16, minute=0, second=0, microsecond=0),
+                "specialization": "Exterior Washing",
+                "contact_number": "+91-9876543211"
+            }
+        ]
+        
+        cleaning_teams = []
+        for team_data in teams_data:
+            team = CleaningTeam(**team_data)
+            db.add(team)
+            cleaning_teams.append(team)
+        
+        db.commit()
+        
+        # Refresh to get IDs
+        for team in cleaning_teams:
+            db.refresh(team)
+        
+        # Create cleaning users
+        users_data = [
+            {
+                "username": "cleaner1",
+                "email": "cleaner1@demo.com",
+                "hashed_password": pwd_context.hash("password123"),
+                "full_name": "Demo Cleaner 1",
+                "team_id": cleaning_teams[0].id,
+                "role": CleaningTeamRole.CLEANER,
+                "employee_id": "DEMO-001"
+            },
+            {
+                "username": "cleaner2",
+                "email": "cleaner2@demo.com",
+                "hashed_password": pwd_context.hash("password123"),
+                "full_name": "Demo Cleaner 2",
+                "team_id": cleaning_teams[1].id,
+                "role": CleaningTeamRole.CLEANER,
+                "employee_id": "DEMO-002"
+            },
+            {
+                "username": "supervisor1",
+                "email": "supervisor1@demo.com",
+                "hashed_password": pwd_context.hash("password123"),
+                "full_name": "Demo Supervisor",
+                "team_id": cleaning_teams[0].id,
+                "role": CleaningTeamRole.SUPERVISOR,
+                "employee_id": "DEMO-003"
+            }
+        ]
+        
+        cleaning_users = []
+        for user_data in users_data:
+            user = CleaningUser(**user_data)
+            db.add(user)
+            cleaning_users.append(user)
+        
+        db.commit()
+        
+        return {
+            "message": "Cleaning data seeded successfully",
+            "teams_created": len(cleaning_teams),
+            "users_created": len(cleaning_users),
+            "demo_credentials": [
+                {"username": "cleaner1", "password": "password123", "role": "cleaner"},
+                {"username": "cleaner2", "password": "password123", "role": "cleaner"},
+                {"username": "supervisor1", "password": "password123", "role": "supervisor"}
+            ]
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error seeding cleaning data: {str(e)}"
+        )
+
+@router.get("/setup/reset-seed")
+async def reset_and_seed_cleaning_data(db: Session = Depends(get_db)):
+    """Reset and reseed cleaning teams and users - for development purposes."""
+    try:
+        # Import here to avoid circular imports
+        from datetime import datetime, timedelta
+        import json
+        from passlib.context import CryptContext
+        
+        pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+        
+        # Delete existing cleaning data
+        db.query(CleaningUser).delete()
+        db.query(CleaningTeam).delete()
+        db.commit()
+        
+        # Create cleaning teams
+        teams_data = [
+            {
+                "team_id": "CT-001",
+                "team_name": "Night Shift Alpha",
+                "team_leader": "John Smith",
+                "team_members": json.dumps(["John Smith", "Maria Garcia", "Ahmed Hassan", "Priya Patel"]),
+                "shift_start": datetime.now().replace(hour=22, minute=0, second=0, microsecond=0),
+                "shift_end": datetime.now().replace(hour=6, minute=0, second=0, microsecond=0) + timedelta(days=1),
+                "specialization": "Interior Deep Cleaning",
+                "contact_number": "+91-9876543210"
+            },
+            {
+                "team_id": "CT-002",
+                "team_name": "Day Shift Beta",
+                "team_leader": "Sarah Johnson",
+                "team_members": json.dumps(["Sarah Johnson", "Rajesh Kumar", "Emma Davis", "Carlos Rodriguez"]),
+                "shift_start": datetime.now().replace(hour=8, minute=0, second=0, microsecond=0),
+                "shift_end": datetime.now().replace(hour=16, minute=0, second=0, microsecond=0),
+                "specialization": "Exterior Washing",
+                "contact_number": "+91-9876543211"
+            }
+        ]
+        
+        cleaning_teams = []
+        for team_data in teams_data:
+            team = CleaningTeam(**team_data)
+            db.add(team)
+            cleaning_teams.append(team)
+        
+        db.commit()
+        
+        # Refresh to get IDs
+        for team in cleaning_teams:
+            db.refresh(team)
+        
+        # Create cleaning users
+        users_data = [
+            {
+                "username": "cleaner1",
+                "email": "cleaner1@demo.com",
+                "hashed_password": pwd_context.hash("password123"),
+                "full_name": "Demo Cleaner 1",
+                "team_id": cleaning_teams[0].id,
+                "role": CleaningTeamRole.CLEANER,
+                "employee_id": "DEMO-001"
+            },
+            {
+                "username": "cleaner2",
+                "email": "cleaner2@demo.com",
+                "hashed_password": pwd_context.hash("password123"),
+                "full_name": "Demo Cleaner 2",
+                "team_id": cleaning_teams[1].id,
+                "role": CleaningTeamRole.CLEANER,
+                "employee_id": "DEMO-002"
+            },
+            {
+                "username": "supervisor1",
+                "email": "supervisor1@demo.com",
+                "hashed_password": pwd_context.hash("password123"),
+                "full_name": "Demo Supervisor",
+                "team_id": cleaning_teams[0].id,
+                "role": CleaningTeamRole.SUPERVISOR,
+                "employee_id": "DEMO-003"
+            }
+        ]
+        
+        cleaning_users = []
+        for user_data in users_data:
+            user = CleaningUser(**user_data)
+            db.add(user)
+            cleaning_users.append(user)
+        
+        db.commit()
+        
+        return {
+            "message": "Cleaning data reset and seeded successfully",
+            "teams_created": len(cleaning_teams),
+            "users_created": len(cleaning_users),
+            "demo_credentials": [
+                {"username": "cleaner1", "password": "password123", "role": "cleaner"},
+                {"username": "cleaner2", "password": "password123", "role": "cleaner"},
+                {"username": "supervisor1", "password": "password123", "role": "supervisor"}
+            ]
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error resetting and seeding cleaning data: {str(e)}"
+        )
+
 @router.post("/auth/login", response_model=Dict[str, str])
 async def login_cleaning_user(
     login_data: CleaningUserLogin,
@@ -165,7 +394,7 @@ async def login_cleaning_user(
         CleaningUser.username == login_data.username
     ).first()
     
-    if not user or not verify_password(login_data.password, user.hashed_password):
+    if not user or not verify_cleaning_password(login_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password"

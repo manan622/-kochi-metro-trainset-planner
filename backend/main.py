@@ -22,8 +22,13 @@ async def lifespan(app: FastAPI):
     # Initialize Hugging Face service
     try:
         print("Initializing Hugging Face service...")
-        cleaning.huggingface_service = cleaning.initialize_huggingface_service()
-        print("Hugging Face AI service initialized successfully")
+        hugging_face_token = os.getenv("HUGGING_FACE_TOKEN")
+        if hugging_face_token:
+            cleaning.huggingface_service = cleaning.initialize_huggingface_service(hugging_face_token)
+            print("Hugging Face AI service initialized successfully with API key")
+        else:
+            cleaning.huggingface_service = cleaning.initialize_huggingface_service()
+            print("Hugging Face AI service initialized without API key (rate limited)")
         print(f"Hugging Face service object: {cleaning.huggingface_service}")
     except Exception as e:
         cleaning.huggingface_service = None
