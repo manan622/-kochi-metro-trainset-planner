@@ -1077,3 +1077,59 @@ async def get_cleaning_dashboard_summary(
             for photo in recent_photos
         ]
     }
+
+@router.delete("/photos/{photo_id}")
+async def delete_photo(
+    photo_id: int,
+    current_user: CleaningUser = Depends(get_current_cleaning_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a cleaning photo evaluation."""
+    try:
+        # Find the photo
+        photo = db.query(CleaningPhotoEvaluation).filter(
+            CleaningPhotoEvaluation.id == photo_id
+        ).first()
+        
+        if not photo:
+            raise HTTPException(
+                status_code=404,
+                detail="Photo not found"
+            )
+        
+        # Check if user has permission (same team)
+        assignment = db.query(CleaningAssignment).filter(
+            CleaningAssignment.id == photo.assignment_id
+        ).first()
+        
+        if assignment.team_id != current_user.team_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Not authorized to delete this photo"
+            )
+        
+        # Delete the physical file if it exists
+        if photo.photo_url and os.path.exists(photo.photo_url):
+            try:
+                os.remove(photo.photo_url)
+                print(f"Deleted photo file: {photo.photo_url}")
+            except Exception as e:
+                print(f"Warning: Could not delete photo file {photo.photo_url}: {str(e)}")
+        
+        # Delete from database
+        db.delete(photo)
+        db.commit()
+        
+        return {
+            "message": "Photo deleted successfully",
+            "photo_id": photo_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting photo: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete photo: {str(e)}"
+        )

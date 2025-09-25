@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from app.models.database import engine, SessionLocal
 from app.models import models
 from app.routers import auth, trainsets, cleaning
+from app.routers import inspection
 
 # Load environment variables
 load_dotenv()
@@ -90,6 +91,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
 app.include_router(trainsets.router, prefix="/api", tags=["trainsets"])
 app.include_router(cleaning.router, tags=["cleaning"])
+app.include_router(inspection.router, prefix="/api", tags=["inspections"])
 
 @app.get("/")
 async def root():

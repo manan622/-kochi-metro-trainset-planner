@@ -1,7 +1,10 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 from datetime import datetime
-from app.models.models import UserRole, TrainsetStatus, CertificateStatus, JobCardStatus, BrandingPriorityLevel
+from app.models.models import (
+    UserRole, TrainsetStatus, CertificateStatus, JobCardStatus, 
+    BrandingPriorityLevel, InspectionStatus, InspectionType, InspectionPriority
+)
 
 # Auth Schemas
 class Token(BaseModel):
@@ -169,3 +172,100 @@ class FleetStatusResponse(BaseModel):
     trainsets: List[InductionPlanResponse]
     summary: dict
     generated_at: datetime
+
+# Inspection Schemas
+class InspectionItemBase(BaseModel):
+    component_name: str
+    check_point: str
+    is_checked: Optional[bool] = False
+    status: Optional[str] = "Pass"
+    notes: Optional[str] = None
+    defect_severity: Optional[str] = None
+    action_required: Optional[str] = None
+
+class InspectionItemCreate(InspectionItemBase):
+    pass
+
+class InspectionItemUpdate(BaseModel):
+    is_checked: Optional[bool] = None
+    status: Optional[str] = None
+    notes: Optional[str] = None
+    defect_severity: Optional[str] = None
+    action_required: Optional[str] = None
+    photo_url: Optional[str] = None
+
+class InspectionItemResponse(InspectionItemBase):
+    id: int
+    inspection_id: int
+    photo_url: Optional[str] = None
+    checked_at: Optional[datetime] = None
+    checked_by: Optional[int] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class InspectionBase(BaseModel):
+    trainset_id: int
+    inspection_type: InspectionType
+    priority: Optional[InspectionPriority] = InspectionPriority.MEDIUM
+    scheduled_date: datetime
+    estimated_duration: Optional[int] = None
+    location: Optional[str] = None
+    description: str
+    approval_required: Optional[bool] = False
+
+class InspectionCreate(InspectionBase):
+    inspection_items: Optional[List[InspectionItemCreate]] = []
+
+class InspectionUpdate(BaseModel):
+    inspection_type: Optional[InspectionType] = None
+    priority: Optional[InspectionPriority] = None
+    scheduled_date: Optional[datetime] = None
+    actual_start_time: Optional[datetime] = None
+    actual_end_time: Optional[datetime] = None
+    estimated_duration: Optional[int] = None
+    location: Optional[str] = None
+    description: Optional[str] = None
+    findings: Optional[str] = None
+    recommendations: Optional[str] = None
+    safety_compliance: Optional[bool] = None
+    completion_notes: Optional[str] = None
+    next_inspection_due: Optional[datetime] = None
+    status: Optional[InspectionStatus] = None
+
+class InspectionResponse(InspectionBase):
+    id: int
+    inspection_number: str
+    inspector_id: int
+    status: InspectionStatus
+    actual_start_time: Optional[datetime] = None
+    actual_end_time: Optional[datetime] = None
+    actual_duration: Optional[int] = None
+    findings: Optional[str] = None
+    recommendations: Optional[str] = None
+    components_checked: Optional[str] = None
+    defects_found: Optional[str] = None
+    safety_compliance: Optional[bool] = True
+    approved_by: Optional[int] = None
+    approved_at: Optional[datetime] = None
+    completion_notes: Optional[str] = None
+    next_inspection_due: Optional[datetime] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    # Related data
+    trainset_number: Optional[str] = None
+    inspector_name: Optional[str] = None
+    approver_name: Optional[str] = None
+    inspection_items: List[InspectionItemResponse] = []
+
+    class Config:
+        from_attributes = True
+
+class TrainsetAddRequest(BaseModel):
+    number: str
+    current_mileage: Optional[float] = 0.0
+    stabling_bay: Optional[str] = None
+    description: Optional[str] = None

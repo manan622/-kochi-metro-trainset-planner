@@ -42,6 +42,7 @@ const CleaningDashboard = () => {
   ]);
   const [selectedArea, setSelectedArea] = useState('Interior');
   const [photoEvaluations, setPhotoEvaluations] = useState([]);
+  const [evaluationCountdown, setEvaluationCountdown] = useState(0);
 
   useEffect(() => {
     checkAuthentication();
@@ -284,6 +285,78 @@ const CleaningDashboard = () => {
     fileInputRef.current.click();
   };
 
+  const deletePhoto = async (photoId) => {
+    if (!window.confirm('Are you sure you want to delete this photo?')) {
+      return;
+    }
+    
+    try {
+      const token = localStorage.getItem('cleaning_token');
+      await axios.delete(
+        `http://localhost:8001/api/cleaning/photos/${photoId}`,
+        {
+          headers: { 
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
+      
+      // Refresh the photo evaluations
+      if (selectedAssignment) {
+        fetchPhotoEvaluations(selectedAssignment.id);
+      }
+      
+      console.log('Photo deleted successfully');
+    } catch (error) {
+      console.error('Error deleting photo:', error);
+      alert('Failed to delete photo. Please try again.');
+    }
+  };
+
+  const selectDemoForUpload = () => {
+    // Create a separate file input for demo images
+    const demoInput = document.createElement('input');
+    demoInput.type = 'file';
+    demoInput.accept = 'image/*';
+    demoInput.onchange = (event) => {
+      const file = event.target.files[0];
+      if (file && file.type.startsWith('image/')) {
+        if (!selectedAssignment) {
+          alert('Please select an assignment first!');
+          return;
+        }
+        
+        console.log('Demo image file selected:', file.name);
+        setCapturedPhoto(file);
+        const previewUrl = URL.createObjectURL(file);
+        setPhotoPreview(previewUrl);
+        stopCamera(); // Stop camera if it was active
+        
+        // Start countdown for evaluation
+        setEvaluationCountdown(3);
+        const countdownInterval = setInterval(() => {
+          setEvaluationCountdown(prev => {
+            if (prev <= 1) {
+              clearInterval(countdownInterval);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+        
+        // Auto-start evaluation after preview
+        setTimeout(() => {
+          console.log('Starting auto-evaluation for uploaded demo image...');
+          setEvaluationCountdown(0);
+          uploadPhotoWithBlob(file);
+        }, 3000);
+      } else {
+        alert('Please select a valid image file.');
+      }
+    };
+    demoInput.click();
+  };
+
   const handleFileSelect = (event) => {
     const file = event.target.files[0];
     if (file && file.type.startsWith('image/')) {
@@ -303,16 +376,26 @@ const CleaningDashboard = () => {
       return;
     }
 
+    await uploadPhotoWithBlob(capturedPhoto);
+  };
+
+  const uploadPhotoWithBlob = async (photoBlob) => {
+    if (!photoBlob || !selectedAssignment) {
+      alert('Please capture a photo and select an assignment');
+      return;
+    }
+
     try {
       setUploadingPhoto(true);
       
       const formData = new FormData();
-      formData.append('photo', capturedPhoto);
+      formData.append('photo', photoBlob);
       formData.append('area_cleaned', selectedArea);
 
       console.log('Uploading photo for AI evaluation...');
       console.log('Assignment:', selectedAssignment.trainset_number);
       console.log('Area:', selectedArea);
+      console.log('Photo size:', photoBlob.size, 'bytes');
 
       // Update headers for multipart form data
       const token = localStorage.getItem('cleaning_token');
@@ -324,7 +407,7 @@ const CleaningDashboard = () => {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'multipart/form-data'
           },
-          timeout: 30000 // Increase timeout for image upload
+          timeout: 120000 // Increased to 2 minutes for AI processing
         }
       );
 
@@ -332,12 +415,19 @@ const CleaningDashboard = () => {
       const evaluation = response.data;
       const isApproved = evaluation.is_approved ? '✅ APPROVED' : '❌ NEEDS REVIEW';
       
+      // More detailed evaluation display
       alert(
         `🤖 AI Evaluation Complete!\n\n` +
         `📊 Quality Score: ${evaluation.ai_quality_score}%\n` +
         `⭐ Rating: ${evaluation.ai_quality_rating}\n` +
-        `📝 Status: ${isApproved}\n\n` +
-        `💬 AI Feedback:\n${evaluation.ai_feedback || 'No additional feedback provided.'}`
+        `📝 Status: ${isApproved}\n` +
+        `🔍 Metro Context: ${evaluation.metro_context_verified ? 'Verified' : 'Failed'}\n` +
+        `🛡️ Safety: ${evaluation.safety_compliance ? 'Pass' : 'Fail'}\n` +
+        `🧼 Hygiene: ${evaluation.hygiene_compliance ? 'Pass' : 'Fail'}\n` +
+        `🎯 Confidence: ${(evaluation.confidence * 100).toFixed(1)}%\n\n` +
+        `💬 AI Feedback:\n${evaluation.ai_feedback || 'No additional feedback provided.'}\n\n` +
+        `📋 AI Caption: ${evaluation.ai_caption || 'No caption'}\n` +
+        `🏷️ AI Classification: ${evaluation.ai_classification || 'Unknown'}`
       );
 
       // Reset and refresh
@@ -637,7 +727,7 @@ Please try again or contact support.`);
 
                     {/* Camera Controls */}
                     {!cameraActive && !capturedPhoto && (
-                      <div className="space-y-2">
+                      <div className="space-y-3">
                         {cameraSupported ? (
                           <button
                             onClick={startCameraAndCapture}
@@ -645,19 +735,35 @@ Please try again or contact support.`);
                             className="bg-metro-primary text-white px-4 py-2 rounded-md hover:bg-metro-secondary transition-colors flex items-center mx-auto disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Camera className="h-4 w-4 mr-2" />
-                            {cameraError ? 'Camera Unavailable' : '📸 Take Photo'}
+                            {cameraError ? 'Camera Unavailable' : '📸 Take Photo (Auto-Capture)'}
                           </button>
                         ) : (
                           <p className="text-red-500 text-sm">Camera not supported on this device</p>
                         )}
+                        
                         <p className="text-xs text-gray-500">or</p>
+                        
                         <button
                           onClick={selectPhotoFromDevice}
                           className="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 transition-colors flex items-center mx-auto"
                         >
                           <ImageIcon className="h-4 w-4 mr-2" />
-                          Select from Device
+                          📱 Select from Device
                         </button>
+                        
+                        <p className="text-xs text-gray-500">or</p>
+                        
+                        <button
+                          onClick={selectDemoForUpload}
+                          className="bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 transition-colors flex items-center mx-auto"
+                        >
+                          <ImageIcon className="h-4 w-4 mr-2" />
+                          💼 Upload Demo & Auto-Evaluate
+                        </button>
+                        
+                        <p className="text-xs text-green-600 text-center">
+                          💡 Demo upload will auto-evaluate after 3-second preview!
+                        </p>
                       </div>
                     )}
 
@@ -673,24 +779,61 @@ Please try again or contact support.`);
                     {/* Photo Preview and Upload */}
                     {capturedPhoto && (
                       <div className="space-y-4">
+                        {/* Debug Info */}
+                        <div className="text-center p-2 bg-blue-50 border border-blue-200 rounded text-xs">
+                          🔍 Debug: Photo captured = {capturedPhoto ? 'YES' : 'NO'} | 
+                          Assignment selected = {selectedAssignment ? 'YES' : 'NO'} | 
+                          Area = {selectedArea}
+                        </div>
+                        
                         {/* Photo Preview */}
-                        {photoPreview && (
+                        {photoPreview ? (
                           <div className="text-center">
                             <img 
                               src={photoPreview} 
                               alt="Captured photo preview" 
                               className="max-w-md mx-auto rounded-lg border-2 border-green-400"
                               style={{ maxHeight: '300px' }}
+                              onLoad={() => console.log('Preview image loaded successfully')}
+                              onError={(e) => {
+                                console.error('Preview image failed to load:', e);
+                                console.error('Preview URL:', photoPreview);
+                              }}
                             />
                           </div>
+                        ) : (
+                          capturedPhoto && (
+                            <div className="text-center p-4 bg-yellow-50 border border-yellow-200 rounded">
+                              <p className="text-sm text-yellow-700">📷 Photo captured but preview not available</p>
+                              <p className="text-xs text-yellow-600">Photo size: {capturedPhoto?.size || 'unknown'} bytes</p>
+                            </div>
+                          )
                         )}
                         
                         <div className="text-center">
                           <p className="text-sm font-medium text-gray-900 mb-1">
                             📷 Photo ready for: <span className="text-metro-primary">{selectedArea}</span>
                           </p>
-                          <p className="text-xs text-gray-500 mb-4">
-                            AI will evaluate cleaning quality and provide feedback
+                          {evaluationCountdown > 0 ? (
+                            <div className="mb-4">
+                              <p className="text-lg font-bold text-blue-600 mb-2">
+                                🤖 Auto-evaluating in {evaluationCountdown}...
+                              </p>
+                              <div className="w-full bg-gray-200 rounded-full h-2">
+                                <div 
+                                  className="bg-blue-600 h-2 rounded-full transition-all duration-1000" 
+                                  style={{ width: `${((3 - evaluationCountdown) / 3) * 100}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-gray-500 mb-4">
+                              AI will evaluate cleaning quality and provide feedback
+                            </p>
+                          )}
+                          {/* Show photo status */}
+                          <p className="text-xs text-blue-600 mb-2">
+                            📊 Photo captured: {capturedPhoto ? `${Math.round(capturedPhoto.size / 1024)}KB` : 'None'}
                           </p>
                         </div>
                         
@@ -703,12 +846,12 @@ Please try again or contact support.`);
                             {uploadingPhoto ? (
                               <>
                                 <RefreshCw className="h-4 w-4 animate-spin mr-2" />
-                                Processing...
+                                🤖 AI Processing... (up to 2 minutes)
                               </>
                             ) : (
                               <>
                                 <Upload className="h-4 w-4 mr-2" />
-                                🤖 AI Evaluate
+                                🤖 AI Evaluate Now!
                               </>
                             )}
                           </button>
@@ -734,7 +877,7 @@ Please try again or contact support.`);
                       <div className="space-y-2 max-h-40 overflow-y-auto">
                         {photoEvaluations.map((photo) => (
                           <div key={photo.id} className="flex justify-between items-center p-2 border rounded">
-                            <div className="text-sm">
+                            <div className="text-sm flex-1">
                               <p className="font-medium">{photo.area_cleaned}</p>
                               <p className="text-xs text-gray-500">
                                 {new Date(photo.photo_timestamp).toLocaleString()}
@@ -744,12 +887,17 @@ Please try again or contact support.`);
                               <p className="text-sm font-medium">
                                 Score: {photo.ai_quality_score}%
                               </p>
-                              <p className={`text-xs px-2 py-1 rounded ${
-                                photo.is_approved ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'
-                              }`}>
+                              <p className={`text-xs px-2 py-1 rounded ${photo.is_approved ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'}`}>
                                 {photo.is_approved ? 'Approved' : 'Needs Review'}
                               </p>
                             </div>
+                            <button
+                              onClick={() => deletePhoto(photo.id)}
+                              className="ml-2 bg-red-500 text-white px-2 py-1 rounded text-xs hover:bg-red-600 transition-colors"
+                              title="Delete this photo"
+                            >
+                              🗑️
+                            </button>
                           </div>
                         ))}
                       </div>

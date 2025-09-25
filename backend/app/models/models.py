@@ -29,6 +29,26 @@ class BrandingPriorityLevel(str, Enum):
     MEDIUM = "Medium"
     LOW = "Low"
 
+class InspectionStatus(str, Enum):
+    PENDING = "Pending"
+    IN_PROGRESS = "In Progress"
+    COMPLETED = "Completed"
+    APPROVED = "Approved"
+    REJECTED = "Rejected"
+
+class InspectionType(str, Enum):
+    SCHEDULED = "Scheduled"
+    MID_DAY_CHECK = "Mid Day Check"
+    EMERGENCY = "Emergency"
+    MAINTENANCE = "Maintenance"
+    SAFETY_CHECK = "Safety Check"
+
+class InspectionPriority(str, Enum):
+    LOW = "Low"
+    MEDIUM = "Medium"
+    HIGH = "High"
+    CRITICAL = "Critical"
+
 class CleaningStatus(str, Enum):
     PENDING = "Pending"
     IN_PROGRESS = "In Progress"
@@ -80,6 +100,7 @@ class Trainset(Base):
     mileage_records = relationship("MileageRecord", back_populates="trainset")
     cleaning_slots = relationship("CleaningSlot", back_populates="trainset")
     cleaning_assignments = relationship("CleaningAssignment", back_populates="trainset")
+    inspections = relationship("Inspection", back_populates="trainset")
 
 class FitnessCertificate(Base):
     __tablename__ = "fitness_certificates"
@@ -271,3 +292,61 @@ class CleaningPhotoEvaluation(Base):
     # Relationships
     assignment = relationship("CleaningAssignment", back_populates="photo_evaluations")
     cleaner = relationship("CleaningUser", back_populates="photo_evaluations")
+
+class Inspection(Base):
+    __tablename__ = "inspections"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    trainset_id = Column(Integer, ForeignKey("trainsets.id"), nullable=False)
+    inspector_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    inspection_number = Column(String(50), unique=True, nullable=False)  # e.g., "INS-2024-001"
+    inspection_type = Column(SQLEnum(InspectionType), nullable=False)
+    status = Column(SQLEnum(InspectionStatus), default=InspectionStatus.PENDING)
+    priority = Column(SQLEnum(InspectionPriority), default=InspectionPriority.MEDIUM)
+    scheduled_date = Column(DateTime(timezone=True), nullable=False)
+    actual_start_time = Column(DateTime(timezone=True), nullable=True)
+    actual_end_time = Column(DateTime(timezone=True), nullable=True)
+    estimated_duration = Column(Integer, nullable=True)  # in minutes
+    actual_duration = Column(Integer, nullable=True)  # in minutes
+    location = Column(String(100), nullable=True)  # Bay number or location
+    description = Column(Text, nullable=False)
+    findings = Column(Text, nullable=True)  # Inspection findings
+    recommendations = Column(Text, nullable=True)  # Inspector recommendations
+    components_checked = Column(Text, nullable=True)  # JSON string of checked components
+    defects_found = Column(Text, nullable=True)  # JSON string of defects
+    safety_compliance = Column(Boolean, default=True)
+    approval_required = Column(Boolean, default=False)
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    completion_notes = Column(Text, nullable=True)
+    next_inspection_due = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    trainset = relationship("Trainset", back_populates="inspections")
+    inspector = relationship("User", foreign_keys=[inspector_id])
+    approver = relationship("User", foreign_keys=[approved_by])
+    inspection_items = relationship("InspectionItem", back_populates="inspection")
+
+class InspectionItem(Base):
+    __tablename__ = "inspection_items"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    inspection_id = Column(Integer, ForeignKey("inspections.id"), nullable=False)
+    component_name = Column(String(100), nullable=False)  # e.g., "Brakes", "Doors", "Lighting"
+    check_point = Column(String(200), nullable=False)  # Specific check point
+    is_checked = Column(Boolean, default=False)
+    status = Column(String(20), default="Pass")  # Pass, Fail, Warning
+    notes = Column(Text, nullable=True)
+    defect_severity = Column(String(20), nullable=True)  # Minor, Major, Critical
+    action_required = Column(Text, nullable=True)
+    photo_url = Column(String(500), nullable=True)  # Path to inspection photo
+    checked_at = Column(DateTime(timezone=True), nullable=True)
+    checked_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    inspection = relationship("Inspection", back_populates="inspection_items")
+    checker = relationship("User")
