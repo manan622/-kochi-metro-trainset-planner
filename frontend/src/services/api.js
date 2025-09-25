@@ -30,7 +30,9 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      window.location.href = '/login';
+      // Check if this is a cleaning request or management request
+      const isCleaningRequest = error.config?.url?.includes('/cleaning');
+      window.location.href = isCleaningRequest ? '/login' : '/management/login';
     }
     return Promise.reject(error);
   }

@@ -1,10 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
 
 from app.models.database import get_db
-from app.models.models import Trainset, User
+from app.models.models import (
+    Trainset, User, CleaningAssignment, CleaningTeam, 
+    CleaningPhotoEvaluation, CleaningUser
+)
 from app.services.auth_service import get_current_user, require_any_role, require_management
 from app.services.induction_service import InductionPlanner
 from app.utils.csv_importer import generate_sample_csv, CSVImporter, create_stabling_bays
@@ -291,4 +295,84 @@ async def clear_all_data(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error clearing data: {str(e)}"
+        )
+
+# Management endpoints for viewing cleaning data
+@router.get("/trainsets/{trainset_id}/cleaning")
+async def get_trainset_cleaning_info(
+    trainset_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_any_role)
+):
+    """Get cleaning information for a specific trainset."""
+    try:
+        trainset = db.query(Trainset).filter(Trainset.id == trainset_id).first()
+        
+        if not trainset:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Trainset with ID {trainset_id} not found"
+            )
+        
+        # Get recent cleaning assignments
+        cleaning_assignments = db.query(CleaningAssignment).filter(
+            CleaningAssignment.trainset_id == trainset_id
+        ).order_by(CleaningAssignment.assigned_date.desc()).limit(5).all()
+        
+        # Get photos for recent assignments
+        assignment_ids = [a.id for a in cleaning_assignments]
+        photos = db.query(CleaningPhotoEvaluation).filter(
+            CleaningPhotoEvaluation.assignment_id.in_(assignment_ids)
+        ).order_by(CleaningPhotoEvaluation.photo_timestamp.desc()).all() if assignment_ids else []
+        
+        # Calculate average quality score
+        avg_score = (
+            sum(p.ai_quality_score for p in photos if p.ai_quality_score) / len(photos)
+            if photos and any(p.ai_quality_score for p in photos)
+            else 0
+        )
+        
+        return {
+            "trainset_number": trainset.number,
+            "recent_assignments": [
+                {
+                    "id": assignment.id,
+                    "team_name": assignment.cleaning_team.team_name,
+                    "cleaning_type": assignment.cleaning_type,
+                    "status": assignment.status.value,
+                    "assigned_date": assignment.assigned_date,
+                    "completed_date": assignment.actual_end,
+                    "completion_notes": assignment.completion_notes
+                }
+                for assignment in cleaning_assignments
+            ],
+            "recent_photos": [
+                {
+                    "id": photo.id,
+                    "assignment_id": photo.assignment_id,
+                    "area_cleaned": photo.area_cleaned,
+                    "ai_quality_score": photo.ai_quality_score,
+                    "ai_quality_rating": photo.ai_quality_rating.value if photo.ai_quality_rating else None,
+                    "photo_timestamp": photo.photo_timestamp,
+                    "cleaner_name": photo.cleaner.full_name,
+                    "team_name": photo.assignment.cleaning_team.team_name,
+                    "is_approved": photo.is_approved
+                }
+                for photo in photos
+            ],
+            "quality_summary": {
+                "average_score": round(avg_score, 1),
+                "total_photos": len(photos),
+                "approved_photos": len([p for p in photos if p.is_approved]),
+                "recent_assignments": len(cleaning_assignments)
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error loading cleaning info for trainset {trainset_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error loading cleaning information: {str(e)}"
         )

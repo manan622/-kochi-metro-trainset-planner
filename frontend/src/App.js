@@ -8,6 +8,8 @@ import WorkerPortal from './pages/WorkerPortal';
 import FleetDashboard from './pages/FleetDashboard';
 import TrainsetDetail from './pages/TrainsetDetail';
 import LoadingSpinner from './components/LoadingSpinner';
+import CleaningLogin from './pages/CleaningLogin';
+import CleaningDashboard from './pages/CleaningDashboard';
 
 // Protected Route Component
 const ProtectedRoute = ({ children, requiredRoles = null }) => {
@@ -18,7 +20,7 @@ const ProtectedRoute = ({ children, requiredRoles = null }) => {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/management/login" replace />;
   }
 
   if (requiredRoles && !hasRole(requiredRoles)) {
@@ -42,7 +44,7 @@ const RoleBasedRedirect = () => {
     case 'worker':
       return <Navigate to="/worker" replace />;
     default:
-      return <Navigate to="/login" replace />;
+      return <Navigate to="/management/login" replace />;
   }
 };
 
@@ -56,7 +58,9 @@ const AppContent = () => {
   return (
     <Routes>
       {/* Public Routes */}
-      <Route path="/login" element={<LoginPage />} />
+      <Route path="/login" element={<CleaningLogin />} />
+      <Route path="/management/login" element={<LoginPage />} />
+      <Route path="/cleaning/dashboard" element={<CleaningDashboard />} />
       
       {/* Root redirect based on role */}
       <Route path="/" element={<RoleBasedRedirect />} />

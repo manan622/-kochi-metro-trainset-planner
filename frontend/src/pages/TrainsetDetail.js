@@ -18,7 +18,9 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronRight,
-  Info
+  Info,
+  Camera,
+  UserCheck
 } from 'lucide-react';
 
 const TrainsetDetail = () => {
@@ -26,6 +28,7 @@ const TrainsetDetail = () => {
   const navigate = useNavigate();
   const [trainset, setTrainset] = useState(null);
   const [evaluation, setEvaluation] = useState(null);
+  const [cleaningInfo, setCleaningInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expandedSections, setExpandedSections] = useState({
@@ -80,8 +83,28 @@ const TrainsetDetail = () => {
         throw new Error(`Failed to fetch trainset evaluation: ${err.response?.data?.detail || err.message}`);
       }
       
+      // Fetch cleaning information
+      let cleaningData = null;
+      try {
+        console.log('Fetching cleaning info for ID:', trainsetData.id);
+        const response = await fetch(`/api/trainsets/${trainsetData.id}/cleaning`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        if (response.ok) {
+          cleaningData = await response.json();
+          console.log('Cleaning data loaded:', cleaningData);
+        }
+      } catch (err) {
+        console.warn('Could not fetch cleaning data:', err);
+        // Don't throw error for cleaning data as it's optional
+      }
+      
       setTrainset(trainsetData);
       setEvaluation(evaluationData);
+      setCleaningInfo(cleaningData);
       console.log('All data loaded successfully');
     } catch (error) {
       const errorMessage = error.message || 'Failed to fetch trainset details';
@@ -572,6 +595,166 @@ const TrainsetDetail = () => {
                   )}
                 </div>
               ))}
+            </div>
+          </Section>
+        )}
+
+        {/* AI-Powered Cleaning Evaluations */}
+        {cleaningInfo && (
+          <Section
+            title="Cleaning Team Assignments & AI Evaluations"
+            icon={Camera}
+            expanded={expandedSections.cleaning}
+            onToggle={() => toggleSection('cleaning')}
+            count={cleaningInfo.recent_assignments?.length}
+          >
+            <div className="mt-4">
+              {/* Quality Summary */}
+              <div className="bg-gray-50 rounded-lg p-4 mb-6">
+                <h4 className="font-medium text-gray-900 mb-3">Cleaning Quality Summary</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-metro-primary">
+                      {cleaningInfo.quality_summary?.average_score || 0}%
+                    </div>
+                    <div className="text-sm text-gray-600">Average AI Score</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-green-600">
+                      {cleaningInfo.quality_summary?.approved_photos || 0}
+                    </div>
+                    <div className="text-sm text-gray-600">Approved Photos</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-blue-600">
+                      {cleaningInfo.quality_summary?.total_photos || 0}
+                    </div>
+                    <div className="text-sm text-gray-600">Total Photos</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Recent Assignments */}
+              {cleaningInfo.recent_assignments?.length > 0 && (
+                <div className="mb-6">
+                  <h4 className="font-medium text-gray-900 mb-3">Recent Cleaning Assignments</h4>
+                  <div className="space-y-3">
+                    {cleaningInfo.recent_assignments.map((assignment) => (
+                      <div key={assignment.id} className="border border-gray-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center">
+                            <UserCheck className="h-4 w-4 text-metro-primary mr-2" />
+                            <span className="font-medium text-gray-900">{assignment.team_name}</span>
+                          </div>
+                          <span className={`px-2 py-1 text-xs font-medium rounded ${
+                            assignment.status === 'COMPLETED' ? 'bg-green-100 text-green-800' :
+                            assignment.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-800' :
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {assignment.status}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-600">
+                          <div>
+                            <span className="font-medium">Type:</span>
+                            <span className="ml-1">{assignment.cleaning_type}</span>
+                          </div>
+                          <div>
+                            <span className="font-medium">Assigned:</span>
+                            <span className="ml-1">{formatDate(assignment.assigned_date)}</span>
+                          </div>
+                          {assignment.completed_date && (
+                            <div>
+                              <span className="font-medium">Completed:</span>
+                              <span className="ml-1">{formatDate(assignment.completed_date)}</span>
+                            </div>
+                          )}
+                        </div>
+                        {assignment.completion_notes && (
+                          <div className="mt-2 text-sm text-gray-600">
+                            <span className="font-medium">Notes:</span>
+                            <span className="ml-1">{assignment.completion_notes}</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Recent Photos with AI Evaluation */}
+              {cleaningInfo.recent_photos?.length > 0 && (
+                <div>
+                  <h4 className="font-medium text-gray-900 mb-3">Recent AI Photo Evaluations</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {cleaningInfo.recent_photos.slice(0, 6).map((photo) => (
+                      <div key={photo.id} className="border border-gray-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center">
+                            <Camera className="h-4 w-4 text-metro-primary mr-2" />
+                            <span className="font-medium text-gray-900">{photo.area_cleaned}</span>
+                          </div>
+                          <span className={`px-2 py-1 text-xs font-medium rounded ${
+                            photo.is_approved ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                          }`}>
+                            {photo.is_approved ? 'Approved' : 'Needs Review'}
+                          </span>
+                        </div>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">AI Quality Score:</span>
+                            <span className={`font-medium ${
+                              photo.ai_quality_score >= 90 ? 'text-green-600' :
+                              photo.ai_quality_score >= 70 ? 'text-yellow-600' :
+                              'text-red-600'
+                            }`}>
+                              {photo.ai_quality_score}%
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Rating:</span>
+                            <span className="font-medium text-gray-900">
+                              {photo.ai_quality_rating}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Team:</span>
+                            <span className="text-gray-900">{photo.team_name}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Cleaner:</span>
+                            <span className="text-gray-900">{photo.cleaner_name}</span>
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {formatDate(photo.photo_timestamp)}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Link to Cleaning Dashboard */}
+              <div className="mt-6 pt-6 border-t border-gray-200">
+                <div className="bg-metro-primary/5 rounded-lg p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h5 className="font-medium text-gray-900">Cleaning Team Dashboard</h5>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Access the dedicated cleaning team interface for photo capture and AI evaluation
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => window.open('/login', '_blank')}
+                      className="bg-metro-primary text-white px-4 py-2 rounded-md hover:bg-metro-secondary transition-colors flex items-center"
+                    >
+                      <Camera className="h-4 w-4 mr-2" />
+                      Open Cleaning Dashboard
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </Section>
         )}

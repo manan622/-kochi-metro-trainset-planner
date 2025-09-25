@@ -1,5 +1,4 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, ForeignKey, Float, Enum as SQLEnum
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, Enum as SQLEnum
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from enum import Enum
@@ -29,6 +28,25 @@ class BrandingPriorityLevel(str, Enum):
     HIGH = "High"
     MEDIUM = "Medium"
     LOW = "Low"
+
+class CleaningStatus(str, Enum):
+    PENDING = "Pending"
+    IN_PROGRESS = "In Progress"
+    COMPLETED = "Completed"
+    VERIFIED = "Verified"
+    REJECTED = "Rejected"
+
+class CleaningQuality(str, Enum):
+    EXCELLENT = "Excellent"
+    GOOD = "Good"
+    SATISFACTORY = "Satisfactory"
+    NEEDS_IMPROVEMENT = "Needs Improvement"
+    UNSATISFACTORY = "Unsatisfactory"
+
+class CleaningTeamRole(str, Enum):
+    TEAM_LEADER = "Team Leader"
+    CLEANER = "Cleaner"
+    SUPERVISOR = "Supervisor"
 
 class User(Base):
     __tablename__ = "users"
@@ -61,6 +79,7 @@ class Trainset(Base):
     branding_priorities = relationship("BrandingPriority", back_populates="trainset")
     mileage_records = relationship("MileageRecord", back_populates="trainset")
     cleaning_slots = relationship("CleaningSlot", back_populates="trainset")
+    cleaning_assignments = relationship("CleaningAssignment", back_populates="trainset")
 
 class FitnessCertificate(Base):
     __tablename__ = "fitness_certificates"
@@ -166,3 +185,89 @@ class StablingBay(Base):
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+class CleaningTeam(Base):
+    __tablename__ = "cleaning_teams"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    team_id = Column(String(20), unique=True, nullable=False)  # e.g., "CT-001"
+    team_name = Column(String(100), nullable=False)
+    team_leader = Column(String(100), nullable=False)
+    team_members = Column(Text, nullable=True)  # JSON string of member names
+    shift_start = Column(DateTime(timezone=True), nullable=False)
+    shift_end = Column(DateTime(timezone=True), nullable=False)
+    specialization = Column(String(100), nullable=True)  # "Interior", "Exterior", "Deep Cleaning"
+    is_active = Column(Boolean, default=True)
+    contact_number = Column(String(20), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    cleaning_assignments = relationship("CleaningAssignment", back_populates="cleaning_team")
+
+class CleaningUser(Base):
+    __tablename__ = "cleaning_users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(50), unique=True, index=True, nullable=False)
+    email = Column(String(100), unique=True, index=True, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    full_name = Column(String(100), nullable=False)
+    team_id = Column(Integer, ForeignKey("cleaning_teams.id"), nullable=False)
+    role = Column(SQLEnum(CleaningTeamRole), nullable=False)
+    employee_id = Column(String(20), unique=True, nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    team = relationship("CleaningTeam")
+    photo_evaluations = relationship("CleaningPhotoEvaluation", back_populates="cleaner")
+
+class CleaningAssignment(Base):
+    __tablename__ = "cleaning_assignments"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    trainset_id = Column(Integer, ForeignKey("trainsets.id"), nullable=False)
+    team_id = Column(Integer, ForeignKey("cleaning_teams.id"), nullable=False)
+    assigned_date = Column(DateTime(timezone=True), nullable=False)
+    scheduled_start = Column(DateTime(timezone=True), nullable=False)
+    scheduled_end = Column(DateTime(timezone=True), nullable=False)
+    actual_start = Column(DateTime(timezone=True), nullable=True)
+    actual_end = Column(DateTime(timezone=True), nullable=True)
+    cleaning_type = Column(String(50), nullable=False)  # "Interior", "Exterior", "Deep", "Maintenance"
+    status = Column(SQLEnum(CleaningStatus), default=CleaningStatus.PENDING)
+    priority = Column(String(20), default="Medium")  # High, Medium, Low
+    special_instructions = Column(Text, nullable=True)
+    completion_notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    trainset = relationship("Trainset")
+    cleaning_team = relationship("CleaningTeam", back_populates="cleaning_assignments")
+    photo_evaluations = relationship("CleaningPhotoEvaluation", back_populates="assignment")
+
+class CleaningPhotoEvaluation(Base):
+    __tablename__ = "cleaning_photo_evaluations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    assignment_id = Column(Integer, ForeignKey("cleaning_assignments.id"), nullable=False)
+    cleaner_id = Column(Integer, ForeignKey("cleaning_users.id"), nullable=False)
+    photo_url = Column(String(500), nullable=False)  # Path to stored image
+    photo_timestamp = Column(DateTime(timezone=True), nullable=False)
+    area_cleaned = Column(String(100), nullable=False)  # "Interior", "Exterior", "Seats", "Floor", etc.
+    ai_evaluation_result = Column(Text, nullable=True)  # JSON string with AI analysis
+    ai_quality_score = Column(Float, nullable=True)  # 0-100 score from AI
+    ai_quality_rating = Column(SQLEnum(CleaningQuality), nullable=True)
+    ai_feedback = Column(Text, nullable=True)  # AI generated feedback
+    manual_override = Column(Boolean, default=False)
+    manual_rating = Column(SQLEnum(CleaningQuality), nullable=True)
+    manual_feedback = Column(Text, nullable=True)
+    is_approved = Column(Boolean, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    assignment = relationship("CleaningAssignment", back_populates="photo_evaluations")
+    cleaner = relationship("CleaningUser", back_populates="photo_evaluations")

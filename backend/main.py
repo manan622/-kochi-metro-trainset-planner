@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 from app.models.database import engine, SessionLocal
 from app.models import models
-from app.routers import auth, trainsets
+from app.routers import auth, trainsets, cleaning
 
 # Load environment variables
 load_dotenv()
@@ -27,7 +27,7 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # React dev server
+    allow_origins=["*"],  # Allow all origins for development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -36,6 +36,7 @@ app.add_middleware(
 # Include routers
 app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
 app.include_router(trainsets.router, prefix="/api", tags=["trainsets"])
+app.include_router(cleaning.router, tags=["cleaning"])
 
 @app.get("/")
 async def root():
