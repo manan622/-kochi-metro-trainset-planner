@@ -2,7 +2,8 @@
 Cleaning Teams API Router
 Handles authentication, team management, cleaning assignments, and photo evaluations
 """
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form, status
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form
+from fastapi import status as http_status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_
@@ -148,20 +149,20 @@ async def get_current_cleaning_user(
         
         if user_type != "cleaning":
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
+                status_code=http_status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid user type for cleaning dashboard"
             )
         
         user = db.query(CleaningUser).filter(CleaningUser.id == user_id).first()
         if not user or not user.is_active:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
+                status_code=http_status.HTTP_401_UNAUTHORIZED,
                 detail="User not found or inactive"
             )
         return user
     except Exception:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials"
         )
 
@@ -271,7 +272,7 @@ async def seed_cleaning_data(db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error seeding cleaning data: {str(e)}"
         )
 
@@ -380,8 +381,95 @@ async def reset_and_seed_cleaning_data(db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error resetting and seeding cleaning data: {str(e)}"
+        )
+
+@router.get("/setup/seed-assignments")
+async def seed_cleaning_assignments(db: Session = Depends(get_db)):
+    """Seed sample cleaning assignments - for development purposes."""
+    try:
+        from datetime import datetime, timedelta
+        
+        # Check if assignments already exist
+        existing_assignments = db.query(CleaningAssignment).count()
+        if existing_assignments > 0:
+            return {"message": "Cleaning assignments already exist", "assignments_count": existing_assignments}
+        
+        # Get cleaning teams and trainsets
+        cleaning_teams = db.query(CleaningTeam).all()
+        trainsets = db.query(Trainset).limit(10).all()  # Get first 10 trainsets
+        
+        if not cleaning_teams or not trainsets:
+            return {"message": "No cleaning teams or trainsets found. Please seed basic data first."}
+        
+        # Create sample assignments for the next few days
+        base_date = datetime.now().replace(hour=8, minute=0, second=0, microsecond=0)
+        assignments_data = []
+        
+        # Create assignments for today and next 3 days
+        for day_offset in range(4):
+            assignment_date = base_date + timedelta(days=day_offset)
+            
+            # Create 2-3 assignments per day alternating between teams
+            for i in range(3):
+                team = cleaning_teams[i % len(cleaning_teams)]
+                trainset = trainsets[(day_offset * 3 + i) % len(trainsets)]
+                
+                start_time = assignment_date + timedelta(hours=i * 3)
+                end_time = start_time + timedelta(hours=2)
+                
+                # Vary the status based on time
+                if day_offset == 0 and i == 0:  # First assignment today
+                    assignment_status = CleaningStatus.IN_PROGRESS
+                    actual_start = start_time
+                    actual_end = None
+                elif day_offset < 0:  # Past assignments
+                    assignment_status = CleaningStatus.COMPLETED
+                    actual_start = start_time
+                    actual_end = end_time
+                else:  # Future assignments
+                    assignment_status = CleaningStatus.PENDING
+                    actual_start = None
+                    actual_end = None
+                
+                cleaning_types = ["Interior", "Exterior", "Deep", "Maintenance"]
+                priorities = ["High", "Medium", "Low"]
+                
+                assignment = CleaningAssignment(
+                    trainset_id=trainset.id,
+                    team_id=team.id,
+                    assigned_date=assignment_date.date(),
+                    scheduled_start=start_time,
+                    scheduled_end=end_time,
+                    actual_start=actual_start,
+                    actual_end=actual_end,
+                    cleaning_type=cleaning_types[i % len(cleaning_types)],
+                    status=assignment_status,
+                    priority=priorities[i % len(priorities)],
+                    special_instructions=f"Priority {priorities[i % len(priorities)].lower()} cleaning for trainset {trainset.number}",
+                    completion_notes="Assignment completed successfully" if assignment_status == CleaningStatus.COMPLETED else None
+                )
+                assignments_data.append(assignment)
+        
+        # Add all assignments to database
+        for assignment in assignments_data:
+            db.add(assignment)
+        
+        db.commit()
+        
+        return {
+            "message": "Cleaning assignments seeded successfully",
+            "assignments_created": len(assignments_data),
+            "assignments_today": len([a for a in assignments_data if a.scheduled_start.date() == datetime.now().date()]),
+            "teams_with_assignments": len(cleaning_teams)
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=http_http_status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error seeding cleaning assignments: {str(e)}"
         )
 
 @router.post("/auth/login", response_model=Dict[str, str])
@@ -396,13 +484,13 @@ async def login_cleaning_user(
     
     if not user or not verify_cleaning_password(login_data.password, user.hashed_password):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password"
         )
     
     if not user.is_active:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
             detail="User account is inactive"
         )
     
@@ -482,7 +570,7 @@ async def get_cleaning_team(
     
     if not team:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=http_status.HTTP_404_NOT_FOUND,
             detail="Cleaning team not found"
         )
     
@@ -562,7 +650,7 @@ async def get_cleaning_assignment(
     
     if not assignment:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=http_status.HTTP_404_NOT_FOUND,
             detail="Assignment not found or not accessible"
         )
     
@@ -599,7 +687,7 @@ async def update_cleaning_assignment(
     
     if not assignment:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=http_status.HTTP_404_NOT_FOUND,
             detail="Assignment not found or not accessible"
         )
     
@@ -658,21 +746,21 @@ async def upload_cleaning_photo(
     
     if not assignment:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=http_status.HTTP_404_NOT_FOUND,
             detail="Assignment not found or not accessible"
         )
     
     # Validate file type
     if not photo.content_type or not photo.content_type.startswith("image/"):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=http_status.HTTP_400_BAD_REQUEST,
             detail=f"File must be an image. Received content type: {photo.content_type}"
         )
     
     # Validate file size (max 10MB)
     if photo.size and photo.size > 10 * 1024 * 1024:  # 10MB
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=http_status.HTTP_400_BAD_REQUEST,
             detail=f"File size too large. Maximum size is 10MB. Received: {photo.size} bytes"
         )
     
@@ -716,7 +804,7 @@ async def upload_cleaning_photo(
         trainset = db.query(Trainset).filter(Trainset.id == assignment.trainset_id).first()
         if not trainset:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
+                status_code=http_status.HTTP_404_NOT_FOUND,
                 detail="Trainset not found"
             )
             
@@ -852,7 +940,7 @@ async def upload_cleaning_photo(
             print(f"Database error traceback: {traceback.format_exc()}")
             db.rollback()
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Database error: {str(db_error)} - Check server logs for details"
             )
         
@@ -884,7 +972,7 @@ async def upload_cleaning_photo(
         
         # Return a more detailed error response
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to process photo: {str(e)} - Check server logs for details"
         )
 
@@ -903,7 +991,7 @@ async def get_assignment_photos(
     
     if not assignment:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=http_status.HTTP_404_NOT_FOUND,
             detail="Assignment not found or not accessible"
         )
     
