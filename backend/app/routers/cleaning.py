@@ -20,6 +20,8 @@ from app.models.models import (
     Trainset, CleaningStatus, CleaningQuality, CleaningTeamRole
 )
 from app.services.gemini_service import get_gemini_service, initialize_gemini_service
+from app.services.huggingface_service import get_huggingface_service, initialize_huggingface_service
+from app.services.ocr_service import get_ocr_service, initialize_ocr_service
 from app.services.auth_service import create_access_token, verify_token, get_password_hash, verify_password
 from pydantic import BaseModel, EmailStr
 from typing import Union
@@ -27,6 +29,11 @@ from typing import Union
 # Initialize router
 router = APIRouter(prefix="/api/cleaning", tags=["cleaning"])
 security = HTTPBearer()
+
+# Global AI service instances
+gemini_service = None
+huggingface_service = None
+ocr_service = None
 
 # Pydantic models for API
 class CleaningTeamCreate(BaseModel):
@@ -146,17 +153,6 @@ async def get_current_cleaning_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials"
         )
-
-# Initialize Gemini service on startup
-@router.on_event("startup")
-async def startup_event():
-    """Initialize Gemini AI service with API key."""
-    gemini_api_key = "AIzaSyD66l2j_rcxVJAq6WkQEWURxXb7hkT7sDI"  # Your provided API key
-    try:
-        initialize_gemini_service(gemini_api_key)
-        print("Gemini AI service initialized successfully")
-    except Exception as e:
-        print(f"Failed to initialize Gemini AI service: {e}")
 
 # Authentication endpoints
 @router.post("/auth/login", response_model=Dict[str, str])
@@ -421,6 +417,10 @@ async def upload_cleaning_photo(
     current_user: CleaningUser = Depends(get_current_cleaning_user)
 ):
     """Upload and evaluate cleaning photo using AI."""
+    print(f"Starting photo upload for assignment {assignment_id} by user {current_user.username}")
+    print(f"Photo filename: {photo.filename}, content type: {photo.content_type}")
+    print(f"Area cleaned: {area_cleaned}")
+    
     # Verify assignment exists and belongs to user's team
     assignment = db.query(CleaningAssignment).filter(
         CleaningAssignment.id == assignment_id,
@@ -434,10 +434,17 @@ async def upload_cleaning_photo(
         )
     
     # Validate file type
-    if not photo.content_type.startswith("image/"):
+    if not photo.content_type or not photo.content_type.startswith("image/"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File must be an image"
+            detail=f"File must be an image. Received content type: {photo.content_type}"
+        )
+    
+    # Validate file size (max 10MB)
+    if photo.size and photo.size > 10 * 1024 * 1024:  # 10MB
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File size too large. Maximum size is 10MB. Received: {photo.size} bytes"
         )
     
     try:
@@ -450,32 +457,144 @@ async def upload_cleaning_photo(
         unique_filename = f"{uuid.uuid4()}.{file_extension}"
         file_path = upload_dir / unique_filename
         
+        print(f"Saving photo to: {file_path}")
+        
         # Save file
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(photo.file, buffer)
+        
+        # Verify file was saved
+        if not file_path.exists():
+            raise Exception(f"Failed to save file to {file_path}")
+        
+        print(f"File saved successfully. Size: {file_path.stat().st_size} bytes")
         
         # Read image data for AI evaluation
         with open(file_path, "rb") as f:
             image_data = f.read()
         
-        # Get Gemini AI service
-        gemini_service = get_gemini_service()
-        if not gemini_service:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="AI evaluation service not available"
-            )
+        print(f"Image data read successfully. Size: {len(image_data)} bytes")
         
-        # Evaluate image with AI
+        # Get AI services in order of preference
+        print("Getting AI services")
+        # Use the global service instances directly instead of calling get functions
+        global gemini_service, huggingface_service, ocr_service
+        print(f"Gemini service object: {gemini_service}")
+        print(f"Hugging Face service object: {huggingface_service}")
+        print(f"OCR service object: {ocr_service}")
+        
+        # Evaluate image with AI (try services in order of preference)
         trainset = db.query(Trainset).filter(Trainset.id == assignment.trainset_id).first()
-        evaluation_result = gemini_service.evaluate_cleaning_photo(
-            image_data=image_data,
-            area_type=area_cleaned,
-            cleaning_type=assignment.cleaning_type,
-            trainset_number=trainset.number
-        )
+        if not trainset:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Trainset not found"
+            )
+            
+        evaluation_result = None
+        service_used = None
+        
+        # Try Hugging Face first (as default service)
+        if huggingface_service:
+            print("Starting AI evaluation with Hugging Face service")
+            try:
+                evaluation_result = huggingface_service.evaluate_cleaning_photo(
+                    image_data=image_data,
+                    area_type=area_cleaned,
+                    cleaning_type=assignment.cleaning_type,
+                    trainset_number=trainset.number
+                )
+                service_used = "Hugging Face"
+                print(f"AI evaluation completed with Hugging Face. Result: {evaluation_result}")
+            except Exception as e:
+                print(f"Exception during Hugging Face AI evaluation: {str(e)}")
+                import traceback
+                print(f"Traceback: {traceback.format_exc()}")
+        
+        # Try Gemini if Hugging Face failed or is not available
+        if not evaluation_result and gemini_service:
+            print("Starting AI evaluation with Gemini service")
+            try:
+                evaluation_result = gemini_service.evaluate_cleaning_photo(
+                    image_data=image_data,
+                    area_type=area_cleaned,
+                    cleaning_type=assignment.cleaning_type,
+                    trainset_number=trainset.number
+                )
+                service_used = "Gemini"
+                print(f"AI evaluation completed with Gemini. Result: {evaluation_result}")
+            except Exception as e:
+                print(f"Exception during Gemini AI evaluation: {str(e)}")
+                import traceback
+                print(f"Traceback: {traceback.format_exc()}")
+        
+        # Try OCR service as final fallback
+        if not evaluation_result and ocr_service:
+            print("Starting AI evaluation with OCR service")
+            try:
+                evaluation_result = ocr_service.evaluate_cleaning_photo(
+                    image_data=image_data,
+                    area_type=area_cleaned,
+                    cleaning_type=assignment.cleaning_type,
+                    trainset_number=trainset.number
+                )
+                service_used = "OCR"
+                print(f"AI evaluation completed with OCR. Result: {evaluation_result}")
+            except Exception as e:
+                print(f"Exception during OCR AI evaluation: {str(e)}")
+                import traceback
+                print(f"Traceback: {traceback.format_exc()}")
+        
+        # If all services failed, use default evaluation
+        if not evaluation_result:
+            print("All AI evaluation services unavailable, using default evaluation")
+            evaluation_result = {
+                "error": "All AI evaluation services temporarily unavailable",
+                "quality_score": 50,  # Default middle score
+                "quality_rating": "Satisfactory",  # Default rating - using correct enum value
+                "feedback": "AI evaluation services are temporarily unavailable. This evaluation is based on default values. The system will automatically use AI services when they become available again.",
+                "confidence": 0.0
+            }
+            service_used = "None (Default)"
+        elif "error" in evaluation_result:
+            print(f"AI evaluation error: {evaluation_result['error']}")
+            # Still create the record but with error information
+            service_used = service_used or "Error"
+        
+        print(f"Using AI service: {service_used}")
         
         # Create photo evaluation record
+        # Handle case where AI evaluation failed
+        quality_score = evaluation_result.get("quality_score", 0) if not evaluation_result.get("error") else 0
+        quality_rating = evaluation_result.get("quality_rating", "Unsatisfactory") if not evaluation_result.get("error") else "Unsatisfactory"
+        feedback = evaluation_result.get("feedback", "AI evaluation failed") if not evaluation_result.get("error") else evaluation_result.get("feedback", "AI evaluation failed")
+        
+        # Validate quality rating
+        print(f"Attempting to create CleaningQuality enum with value: {quality_rating}")
+        try:
+            quality_rating_enum = CleaningQuality(quality_rating)
+            print(f"Successfully created CleaningQuality enum: {quality_rating_enum}")
+        except ValueError as ve:
+            print(f"ValueError when creating CleaningQuality enum: {ve}")
+            print(f"Invalid quality rating: {quality_rating}, using default Unsatisfactory")
+            # Use the correct enum value - it should be "Unsatisfactory" not "UNSATISFACTORY"
+            quality_rating_enum = CleaningQuality.UNSATISFACTORY
+        except Exception as e:
+            print(f"Unexpected error when creating CleaningQuality enum: {e}")
+            quality_rating_enum = CleaningQuality.UNSATISFACTORY
+        
+        print(f"Creating CleaningPhotoEvaluation object with parameters:")
+        print(f"  assignment_id: {assignment_id}")
+        print(f"  cleaner_id: {current_user.id}")
+        print(f"  photo_url: {str(file_path)}")
+        print(f"  photo_timestamp: {datetime.utcnow()}")
+        print(f"  area_cleaned: {area_cleaned}")
+        print(f"  ai_evaluation_result: {json.dumps(evaluation_result)[:100]}...")
+        print(f"  ai_quality_score: {quality_score}")
+        print(f"  ai_quality_rating: {quality_rating_enum}")
+        print(f"  ai_feedback: {feedback[:50] if feedback else 'None'}...")
+        print(f"  is_approved: {quality_score >= 70}")
+        
         photo_eval = CleaningPhotoEvaluation(
             assignment_id=assignment_id,
             cleaner_id=current_user.id,
@@ -483,15 +602,30 @@ async def upload_cleaning_photo(
             photo_timestamp=datetime.utcnow(),
             area_cleaned=area_cleaned,
             ai_evaluation_result=json.dumps(evaluation_result),
-            ai_quality_score=evaluation_result.get("quality_score"),
-            ai_quality_rating=CleaningQuality(evaluation_result.get("quality_rating", "SATISFACTORY")),
-            ai_feedback=evaluation_result.get("feedback"),
-            is_approved=evaluation_result.get("quality_score", 0) >= 70  # Auto-approve if score >= 70
+            ai_quality_score=quality_score,
+            ai_quality_rating=quality_rating_enum,
+            ai_feedback=feedback,
+            is_approved=quality_score >= 70  # Auto-approve if score >= 70
         )
+        print(f"Successfully created CleaningPhotoEvaluation object")
         
-        db.add(photo_eval)
-        db.commit()
-        db.refresh(photo_eval)
+        print(f"Attempting to save photo evaluation to database for assignment {assignment_id}")
+        try:
+            db.add(photo_eval)
+            print("Added photo evaluation to session")
+            db.commit()
+            print("Committed to database")
+            db.refresh(photo_eval)
+            print("Refreshed photo evaluation from database")
+        except Exception as db_error:
+            print(f"Database error: {str(db_error)}")
+            import traceback
+            print(f"Database error traceback: {traceback.format_exc()}")
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Database error: {str(db_error)} - Check server logs for details"
+            )
         
         return PhotoEvaluationResponse(
             id=photo_eval.id,
@@ -507,13 +641,22 @@ async def upload_cleaning_photo(
         )
         
     except Exception as e:
+        # Log detailed error information
+        import traceback
+        error_details = f"Failed to process photo: {str(e)}\nTraceback: {traceback.format_exc()}"
+        print(f"ERROR: {error_details}")
+        
         # Clean up file if something went wrong
         if 'file_path' in locals() and file_path.exists():
-            file_path.unlink()
+            try:
+                file_path.unlink()
+            except Exception as cleanup_error:
+                print(f"ERROR: Failed to clean up file: {cleanup_error}")
         
+        # Return a more detailed error response
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process photo: {str(e)}"
+            detail=f"Failed to process photo: {str(e)} - Check server logs for details"
         )
 
 @router.get("/assignments/{assignment_id}/photos", response_model=List[PhotoEvaluationResponse])

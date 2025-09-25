@@ -48,6 +48,18 @@ This decision depends on six interdependent variables:
 - Node.js 18+ (for local development)
 - Python 3.10+ (for local development)
 
+### Development Startup Scripts
+
+To make development easier, we've provided several scripts to start both the frontend and backend servers:
+
+- `start-dev.bat` - Windows batch script
+- `start-dev.sh` - Shell script for Mac/Linux
+- `start-dev.py` - Cross-platform Python script
+- `start-dev.js` - Cross-platform Node.js script (run with `node start-dev.js`)
+- `npm run dev` - NPM script (run from frontend directory)
+
+See [STARTUP_GUIDE.md](STARTUP_GUIDE.md) for detailed instructions on using these scripts.
+
 ### Option 1: Docker Compose (Recommended)
 
 1. **Clone and navigate to the project:**
@@ -72,6 +84,16 @@ This decision depends on six interdependent variables:
    ```
 
 ### Option 2: Local Development
+
+#### Easy Start (Recommended)
+
+1. **Use the provided startup scripts:**
+   - **Windows**: Double-click `start-dev.bat` or run `python start-dev.py`
+   - **Mac/Linux**: Run `python start-dev.py`
+   - **Cross-platform**: Run `node start-dev.js` from the project root
+   - **Alternative**: Run `npm run dev` from the frontend directory
+
+#### Manual Start
 
 1. **Set up backend:**
    ```bash

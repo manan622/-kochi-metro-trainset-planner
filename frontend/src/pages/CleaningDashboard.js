@@ -323,7 +323,8 @@ const CleaningDashboard = () => {
           headers: { 
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'multipart/form-data'
-          }
+          },
+          timeout: 30000 // Increase timeout for image upload
         }
       );
 
@@ -350,8 +351,31 @@ const CleaningDashboard = () => {
 
     } catch (error) {
       console.error('Error uploading photo:', error);
-      const errorMessage = error.response?.data?.detail || error.message || 'Unknown error occurred';
-      alert(`❌ Failed to upload photo:\n${errorMessage}\n\nPlease try again.`);
+      
+      // Extract detailed error information
+      let errorMessage = 'Unknown error occurred';
+      let errorDetails = '';
+      
+      if (error.response) {
+        // Server responded with error
+        errorMessage = error.response.data?.detail || error.response.statusText || 'Server error';
+        errorDetails = `Status: ${error.response.status}\n`;
+      } else if (error.request) {
+        // Request was made but no response received
+        errorMessage = 'No response from server. Check your network connection.';
+        errorDetails = 'Network error or server unavailable.';
+      } else {
+        // Something else happened
+        errorMessage = error.message || 'Unknown error occurred';
+      }
+      
+      // Show detailed error to user
+      alert(`❌ Failed to upload photo:
+
+${errorMessage}
+
+${errorDetails}
+Please try again or contact support.`);
     } finally {
       setUploadingPhoto(false);
     }

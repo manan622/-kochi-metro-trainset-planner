@@ -15,6 +15,54 @@ load_dotenv()
 async def lifespan(app: FastAPI):
     # Create database tables
     models.Base.metadata.create_all(bind=engine)
+    
+    # Initialize AI services
+    print("Starting AI service initialization in lifespan...")
+    
+    # Initialize Hugging Face service
+    try:
+        print("Initializing Hugging Face service...")
+        cleaning.huggingface_service = cleaning.initialize_huggingface_service()
+        print("Hugging Face AI service initialized successfully")
+        print(f"Hugging Face service object: {cleaning.huggingface_service}")
+    except Exception as e:
+        cleaning.huggingface_service = None
+        print(f"Failed to initialize Hugging Face AI service: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # Initialize Gemini AI service
+    gemini_api_key = "AIzaSyD66l2j_rcxVJAq6WkQEWURxXb7hkT7sDI"  # Your provided API key
+    try:
+        print("Initializing Gemini service...")
+        if gemini_api_key and gemini_api_key != "YOUR_API_KEY_HERE":
+            cleaning.gemini_service = cleaning.initialize_gemini_service(gemini_api_key)
+            print("Gemini AI service initialized successfully")
+            print(f"Gemini service object: {cleaning.gemini_service}")
+        else:
+            cleaning.gemini_service = None
+            print("WARNING: Gemini API key not configured.")
+    except Exception as e:
+        cleaning.gemini_service = None
+        print(f"Failed to initialize Gemini AI service: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # Initialize OCR service
+    try:
+        print("Initializing OCR service...")
+        cleaning.ocr_service = cleaning.initialize_ocr_service()
+        print("OCR AI service initialized successfully")
+        print(f"OCR service object: {cleaning.ocr_service}")
+    except Exception as e:
+        cleaning.ocr_service = None
+        print(f"Failed to initialize OCR AI service: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    print("AI service initialization completed.")
+    print(f"Final service states - Gemini: {cleaning.gemini_service}, Hugging Face: {cleaning.huggingface_service}, OCR: {cleaning.ocr_service}")
+    
     yield
 
 app = FastAPI(

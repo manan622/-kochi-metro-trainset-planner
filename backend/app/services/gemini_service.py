@@ -64,11 +64,16 @@ class GeminiCleaningEvaluator:
             return evaluation_result
             
         except Exception as e:
+            import traceback
+            error_msg = f"AI evaluation failed: {str(e)}"
+            print(f"ERROR in Gemini evaluation: {error_msg}")
+            print(f"Traceback: {traceback.format_exc()}")
+            
             return {
-                "error": f"AI evaluation failed: {str(e)}",
+                "error": error_msg,
                 "quality_score": 0,
-                "quality_rating": "UNSATISFACTORY",
-                "feedback": "Unable to evaluate image due to technical error",
+                "quality_rating": "Unsatisfactory",
+                "feedback": f"Unable to evaluate image due to technical error: {str(e)}",
                 "confidence": 0.0
             }
     
@@ -127,7 +132,7 @@ Evaluate the cleaning quality based on these criteria:
 ```json
 {{
     "quality_score": [0-100 numerical score],
-    "quality_rating": "[EXCELLENT|GOOD|SATISFACTORY|NEEDS_IMPROVEMENT|UNSATISFACTORY]",
+    "quality_rating": "[EXCELLENT|GOOD|SATISFACTORY|NEEDS_IMPROVEMENT|Unsatisfactory]",
     "confidence": [0.0-1.0 confidence level],
     "feedback": "Detailed feedback explaining the rating",
     "areas_of_concern": ["list", "of", "specific", "issues"],
@@ -213,7 +218,7 @@ Be thorough, objective, and provide constructive feedback for improvement.
             # Return default values if parsing fails
             return {
                 "quality_score": 50,
-                "quality_rating": "SATISFACTORY",
+                "quality_rating": "Satisfactory",
                 "confidence": 0.5,
                 "feedback": f"AI response parsing error: {str(e)}",
                 "areas_of_concern": [],
@@ -231,7 +236,7 @@ Be thorough, objective, and provide constructive feedback for improvement.
         """Get default value for missing fields."""
         defaults = {
             'quality_score': 50,
-            'quality_rating': 'SATISFACTORY',
+            'quality_rating': 'Satisfactory',
             'confidence': 0.5,
             'feedback': 'Evaluation completed with default values',
             'areas_of_concern': [],
@@ -257,7 +262,7 @@ Be thorough, objective, and provide constructive feedback for improvement.
         if not photo_evaluations:
             return {
                 "overall_score": 0,
-                "overall_rating": "UNSATISFACTORY",
+                "overall_rating": "Unsatisfactory",
                 "total_photos": 0,
                 "summary": "No photos available for evaluation"
             }
@@ -276,7 +281,7 @@ Be thorough, objective, and provide constructive feedback for improvement.
         elif avg_score >= 50:
             overall_rating = "NEEDS_IMPROVEMENT"
         else:
-            overall_rating = "UNSATISFACTORY"
+            overall_rating = "Unsatisfactory"
         
         # Collect all issues and recommendations
         all_issues = []
