@@ -6,7 +6,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000, // 10 second timeout
+  timeout: 60000, // 60 second timeout for AI processing and bulk operations
 });
 
 // Add request interceptor to include auth token
@@ -94,6 +94,27 @@ export const trainsetAPI = {
   getTrainsetEvaluation: async (trainsetId, date = null) => {
     const params = date ? { date } : {};
     const response = await api.get(`/api/trainsets/${trainsetId}/evaluation`, { params });
+    return response.data;
+  },
+  
+  // Trainset Management Functions
+  createTrainset: async (trainsetData) => {
+    const response = await api.post('/api/trainsets', trainsetData);
+    return response.data;
+  },
+  
+  updateTrainset: async (trainsetId, trainsetData) => {
+    const response = await api.put(`/api/trainsets/${trainsetId}`, trainsetData);
+    return response.data;
+  },
+  
+  deleteTrainset: async (trainsetId) => {
+    const response = await api.delete(`/api/trainsets/${trainsetId}`);
+    return response.data;
+  },
+  
+  generateDummyTrainsets: async (numTrainsets = 5, prefix = 'TS') => {
+    const response = await api.post(`/api/trainsets/generate-dummy?num_trainsets=${numTrainsets}&prefix=${prefix}`);
     return response.data;
   }
 };

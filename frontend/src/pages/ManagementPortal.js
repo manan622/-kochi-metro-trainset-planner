@@ -12,7 +12,12 @@ import {
   Settings,
   Database,
   Download,
-  Trash2
+  Trash2,
+  Plus,
+  Edit,
+  X,
+  Save,
+  Shuffle
 } from 'lucide-react';
 
 const ManagementPortal = () => {
@@ -22,9 +27,23 @@ const ManagementPortal = () => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [dataLoading, setDataLoading] = useState(false);
   const [dataMessage, setDataMessage] = useState('');
+  const [showAddTrainset, setShowAddTrainset] = useState(false);
+  const [showGenerateDummy, setShowGenerateDummy] = useState(false);
+  const [allTrainsets, setAllTrainsets] = useState([]);
+  const [editingTrainset, setEditingTrainset] = useState(null);
+  const [newTrainset, setNewTrainset] = useState({
+    number: '',
+    current_mileage: 0,
+    stabling_bay: ''
+  });
+  const [dummyConfig, setDummyConfig] = useState({
+    count: 5,
+    prefix: 'TS'
+  });
 
   useEffect(() => {
     fetchFleetStatus();
+    fetchAllTrainsets();
   }, [selectedDate]);
 
   const fetchFleetStatus = async () => {
@@ -40,13 +59,60 @@ const ManagementPortal = () => {
     }
   };
 
+  const fetchAllTrainsets = async () => {
+    try {
+      const data = await trainsetAPI.getAllTrainsets();
+      setAllTrainsets(data);
+    } catch (error) {
+      console.error('Error fetching all trainsets:', error);
+    }
+  };
+
+  const handleCreateTrainset = async (e) => {
+    e.preventDefault();
+    if (!newTrainset.number.trim()) {
+      setDataMessage('Trainset number is required');
+      return;
+    }
+    
+    try {
+      setDataLoading(true);
+      setDataMessage('');
+      await trainsetAPI.createTrainset(newTrainset);
+      setDataMessage(`Successfully created trainset ${newTrainset.number}`);
+      setNewTrainset({ number: '', current_mileage: 0, stabling_bay: '' });
+      setShowAddTrainset(false);
+      await Promise.all([fetchFleetStatus(), fetchAllTrainsets()]);
+    } catch (error) {
+      setDataMessage(`Error creating trainset: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setDataLoading(false);
+    }
+  };
+
+  const handleGenerateDummy = async (e) => {
+    e.preventDefault();
+    try {
+      setDataLoading(true);
+      setDataMessage('');
+      const response = await trainsetAPI.generateDummyTrainsets(dummyConfig.count, dummyConfig.prefix);
+      setDataMessage(`Successfully generated ${response.total_count} dummy trainsets`);
+      setShowGenerateDummy(false);
+      await Promise.all([fetchFleetStatus(), fetchAllTrainsets()]);
+    } catch (error) {
+      setDataMessage(`Error generating dummy trainsets: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setDataLoading(false);
+    }
+  };
+
   const loadSampleData = async () => {
     try {
       setDataLoading(true);
       setDataMessage('');
       const response = await api.post('/api/data/load-sample?num_trainsets=25');
       setDataMessage(`Successfully loaded ${response.data.imported_trainsets} trainsets`);
-      await fetchFleetStatus(); // Refresh the data
+      await fetchFleetStatus();
     } catch (error) {
       setDataMessage(`Error loading data: ${error.response?.data?.detail || error.message}`);
       console.error('Error loading sample data:', error);
@@ -65,25 +131,12 @@ const ManagementPortal = () => {
       setDataMessage('');
       await api.delete('/api/data/clear');
       setDataMessage('All trainset data cleared successfully');
-      await fetchFleetStatus(); // Refresh the data
+      await fetchFleetStatus();
     } catch (error) {
       setDataMessage(`Error clearing data: ${error.response?.data?.detail || error.message}`);
       console.error('Error clearing data:', error);
     } finally {
       setDataLoading(false);
-    }
-  };
-
-  const getStatusColor = (status) => {
-    switch (status.toLowerCase()) {
-      case 'fit':
-        return 'text-green-600 bg-green-100';
-      case 'unfit':
-        return 'text-red-600 bg-red-100';
-      case 'standby':
-        return 'text-yellow-600 bg-yellow-100';
-      default:
-        return 'text-gray-600 bg-gray-100';
     }
   };
 
@@ -157,39 +210,62 @@ const ManagementPortal = () => {
           </div>
         )}
 
-        {/* Data Management Section */}
+        {/* Enhanced Data Management Section */}
         <div className="bg-white rounded-lg shadow">
           <div className="px-6 py-4 border-b border-gray-200">
             <h3 className="text-lg font-medium text-gray-900 flex items-center">
               <Database className="h-5 w-5 mr-2 text-metro-primary" />
-              Train Dataset Management
+              Scalable Train Fleet Management
             </h3>
             <p className="text-sm text-gray-600 mt-1">
-              Load sample data or manage existing trainset information
+              Add individual trainsets, generate test data, or manage existing fleet
             </p>
           </div>
           <div className="p-6">
-            <div className="flex flex-wrap gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <button
+                onClick={() => setShowAddTrainset(true)}
+                disabled={dataLoading}
+                className="bg-green-600 text-white px-4 py-3 rounded-md hover:bg-green-700 transition-colors flex items-center justify-center disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add New Trainset
+              </button>
+              
+              <button
+                onClick={() => setShowGenerateDummy(true)}
+                disabled={dataLoading}
+                className="bg-blue-600 text-white px-4 py-3 rounded-md hover:bg-blue-700 transition-colors flex items-center justify-center disabled:opacity-50"
+              >
+                <Shuffle className="h-4 w-4 mr-2" />
+                Generate Dummy Data
+              </button>
+              
               <button
                 onClick={loadSampleData}
                 disabled={dataLoading}
-                className="bg-metro-primary text-white px-4 py-2 rounded-md hover:bg-metro-secondary transition-colors flex items-center disabled:opacity-50"
+                className="bg-metro-primary text-white px-4 py-3 rounded-md hover:bg-metro-secondary transition-colors flex items-center justify-center disabled:opacity-50"
               >
                 <Download className="h-4 w-4 mr-2" />
-                {dataLoading ? 'Loading...' : 'Load Sample Data (25 Trainsets)'}
+                {dataLoading ? 'Loading...' : 'Load Sample Data'}
               </button>
+              
               <button
                 onClick={clearAllData}
                 disabled={dataLoading}
-                className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 transition-colors flex items-center disabled:opacity-50"
+                className="bg-red-600 text-white px-4 py-3 rounded-md hover:bg-red-700 transition-colors flex items-center justify-center disabled:opacity-50"
               >
                 <Trash2 className="h-4 w-4 mr-2" />
                 {dataLoading ? 'Processing...' : 'Clear All Data'}
               </button>
             </div>
-            <p className="text-xs text-gray-500 mt-2">
-              Sample data includes trainsets with various statuses, maintenance records, certificates, and job cards for testing.
-            </p>
+            
+            <div className="text-xs text-gray-500">
+              <p><strong>Individual:</strong> Add trainsets one by one with custom details</p>
+              <p><strong>Dummy:</strong> Generate realistic test data for development and testing</p>
+              <p><strong>Sample:</strong> Load 25 trainsets with comprehensive maintenance records</p>
+              <p><strong>Clear:</strong> Remove all trainset data and start fresh</p>
+            </div>
           </div>
         </div>
 
@@ -298,89 +374,110 @@ const ManagementPortal = () => {
                 </div>
               </div>
             </div>
-
-            {/* Critical Alerts Summary */}
-            {fleetStatus.summary.total_alerts > 0 && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-                <h3 className="text-lg font-medium text-red-800 flex items-center mb-4">
-                  <AlertTriangle className="h-5 w-5 mr-2" />
-                  Critical Alerts Requiring Management Attention
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {fleetStatus.trainsets
-                    .filter(t => t.conflict_alerts.length > 0)
-                    .map(trainset => (
-                      <div key={trainset.trainset_id} className="bg-white rounded border border-red-200 p-4">
-                        <h4 className="font-medium text-red-900">{trainset.trainset_id}</h4>
-                        <div className="mt-2 space-y-1">
-                          {trainset.conflict_alerts.map((alert, idx) => (
-                            <div key={idx} className="text-sm text-red-700 flex items-center">
-                              <div className="w-2 h-2 bg-red-400 rounded-full mr-2"></div>
-                              {alert}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            )}
-
-            {/* Operational Insights */}
-            <div className="bg-white rounded-lg shadow">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <h3 className="text-lg font-medium text-gray-900 flex items-center">
-                  <TrendingUp className="h-5 w-5 mr-2 text-metro-primary" />
-                  Operational Insights
-                </h3>
-              </div>
-              <div className="p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-3">Fleet Readiness</h4>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Service Ready</span>
-                        <span className="text-sm font-medium text-green-600">
-                          {((fleetStatus.summary.fit / fleetStatus.summary.total_trainsets) * 100).toFixed(1)}%
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Needs Maintenance</span>
-                        <span className="text-sm font-medium text-red-600">
-                          {((fleetStatus.summary.unfit / fleetStatus.summary.total_trainsets) * 100).toFixed(1)}%
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Available Reserve</span>
-                        <span className="text-sm font-medium text-yellow-600">
-                          {((fleetStatus.summary.standby / fleetStatus.summary.total_trainsets) * 100).toFixed(1)}%
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-3">Recommendations</h4>
-                    <div className="space-y-2 text-sm text-gray-600">
-                      {fleetStatus.summary.unfit > 0 && (
-                        <p>• Prioritize maintenance for {fleetStatus.summary.unfit} unfit trainsets</p>
-                      )}
-                      {fleetStatus.summary.total_alerts > 5 && (
-                        <p>• High alert count ({fleetStatus.summary.total_alerts}) requires immediate attention</p>
-                      )}
-                      {fleetStatus.summary.fit / fleetStatus.summary.total_trainsets < 0.7 && (
-                        <p>• Fleet readiness below 70% - consider operational adjustments</p>
-                      )}
-                      {fleetStatus.summary.standby > fleetStatus.summary.fit && (
-                        <p>• Excess standby capacity available for service expansion</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
           </>
+        )}
+
+        {/* Add Trainset Modal */}
+        {showAddTrainset && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-medium text-gray-900">Add New Trainset</h3>
+                <button onClick={() => setShowAddTrainset(false)} className="text-gray-400 hover:text-gray-600">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <form onSubmit={handleCreateTrainset}>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Trainset Number *</label>
+                    <input
+                      type="text"
+                      value={newTrainset.number}
+                      onChange={(e) => setNewTrainset({...newTrainset, number: e.target.value})}
+                      placeholder="e.g., TS-2025-001"
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-metro-primary"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Current Mileage (km)</label>
+                    <input
+                      type="number"
+                      value={newTrainset.current_mileage}
+                      onChange={(e) => setNewTrainset({...newTrainset, current_mileage: parseFloat(e.target.value) || 0})}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-metro-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Stabling Bay</label>
+                    <input
+                      type="text"
+                      value={newTrainset.stabling_bay}
+                      onChange={(e) => setNewTrainset({...newTrainset, stabling_bay: e.target.value})}
+                      placeholder="e.g., Bay-01"
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-metro-primary"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end space-x-3 mt-6">
+                  <button type="button" onClick={() => setShowAddTrainset(false)} className="px-4 py-2 text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50">
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={dataLoading} className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 flex items-center">
+                    <Plus className="h-4 w-4 mr-2" />
+                    {dataLoading ? 'Creating...' : 'Create'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Generate Dummy Modal */}
+        {showGenerateDummy && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-medium text-gray-900">Generate Dummy Trainsets</h3>
+                <button onClick={() => setShowGenerateDummy(false)} className="text-gray-400 hover:text-gray-600">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <form onSubmit={handleGenerateDummy}>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Number of Trainsets (1-50)</label>
+                    <input
+                      type="number"
+                      value={dummyConfig.count}
+                      onChange={(e) => setDummyConfig({...dummyConfig, count: parseInt(e.target.value) || 1})}
+                      min="1" max="50"
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-metro-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Prefix</label>
+                    <input
+                      type="text"
+                      value={dummyConfig.prefix}
+                      onChange={(e) => setDummyConfig({...dummyConfig, prefix: e.target.value})}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-metro-primary"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end space-x-3 mt-6">
+                  <button type="button" onClick={() => setShowGenerateDummy(false)} className="px-4 py-2 text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50">
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={dataLoading} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center">
+                    <Shuffle className="h-4 w-4 mr-2" />
+                    {dataLoading ? 'Generating...' : 'Generate'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
         )}
       </div>
     </Layout>

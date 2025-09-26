@@ -17,7 +17,8 @@ from app.schemas import (
     TrainsetDetailResponse, 
     InductionPlanResponse,
     InductionPlanRequest,
-    FleetStatusResponse
+    FleetStatusResponse,
+    TrainsetCreate
 )
 
 router = APIRouter()
@@ -64,6 +65,208 @@ async def generate_induction_plan(
             detail=f"Error generating induction plan: {str(e)}"
         )
 
+@router.post("/trainsets", response_model=TrainsetResponse)
+async def create_trainset(
+    trainset_data: TrainsetCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_management)
+):
+    """Create a new trainset manually.
+    
+    Access: Management only
+    """
+    try:
+        # Check if trainset already exists
+        existing = db.query(Trainset).filter(Trainset.number == trainset_data.number).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Trainset {trainset_data.number} already exists"
+            )
+        
+        # Create new trainset
+        trainset = Trainset(
+            number=trainset_data.number,
+            current_mileage=trainset_data.current_mileage or 0.0,
+            stabling_bay=trainset_data.stabling_bay,
+            reasoning=f"Manually created by {current_user.username}"
+        )
+        
+        db.add(trainset)
+        db.commit()
+        db.refresh(trainset)
+        
+        return trainset
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creating trainset: {str(e)}"
+        )
+
+@router.post("/trainsets/generate-dummy")
+async def generate_dummy_trainset(
+    num_trainsets: int = Query(1, ge=1, le=50, description="Number of dummy trainsets to generate"),
+    prefix: str = Query("TS", description="Trainset number prefix"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_management)
+):
+    """Generate dummy trainsets with realistic data.
+    
+    Access: Management only
+    """
+    try:
+        import random
+        from datetime import datetime, timedelta
+        
+        created_trainsets = []
+        existing_numbers = {ts.number for ts in db.query(Trainset).all()}
+        
+        for i in range(num_trainsets):
+            # Generate unique trainset number
+            attempts = 0
+            while attempts < 100:  # Prevent infinite loop
+                year = random.choice([2023, 2024, 2025])
+                sequence = random.randint(100, 999)
+                number = f"{prefix}-{year}-{sequence:03d}"
+                
+                if number not in existing_numbers:
+                    existing_numbers.add(number)
+                    break
+                attempts += 1
+            else:
+                # If we can't find a unique number, skip this one
+                continue
+            
+            # Generate realistic data
+            mileage = random.randint(0, 100000)
+            bay_options = ["Bay-01", "Bay-02", "Bay-03", "Bay-04", "Bay-05", "Bay-06", "Depot-A", "Depot-B", None]
+            bay = random.choice(bay_options)
+            
+            trainset = Trainset(
+                number=number,
+                current_mileage=mileage,
+                stabling_bay=bay,
+                reasoning=f"Auto-generated dummy trainset by {current_user.username}"
+            )
+            
+            db.add(trainset)
+            created_trainsets.append({
+                "number": number,
+                "mileage": mileage,
+                "bay": bay
+            })
+        
+        db.commit()
+        
+        return {
+            "message": f"Successfully generated {len(created_trainsets)} dummy trainsets",
+            "created_trainsets": created_trainsets,
+            "total_count": len(created_trainsets)
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating dummy trainsets: {str(e)}"
+        )
+
+@router.put("/trainsets/{trainset_id}", response_model=TrainsetResponse)
+async def update_trainset(
+    trainset_id: int,
+    trainset_data: TrainsetCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_management)
+):
+    """Update an existing trainset.
+    
+    Access: Management only
+    """
+    try:
+        trainset = db.query(Trainset).filter(Trainset.id == trainset_id).first()
+        if not trainset:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Trainset not found"
+            )
+        
+        # Check if new number conflicts with existing trainset
+        if trainset_data.number != trainset.number:
+            existing = db.query(Trainset).filter(
+                Trainset.number == trainset_data.number,
+                Trainset.id != trainset_id
+            ).first()
+            if existing:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Trainset number {trainset_data.number} already exists"
+                )
+        
+        # Update trainset data
+        trainset.number = trainset_data.number
+        trainset.current_mileage = trainset_data.current_mileage or trainset.current_mileage
+        trainset.stabling_bay = trainset_data.stabling_bay
+        trainset.reasoning = f"Updated by {current_user.username} on {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        
+        db.commit()
+        db.refresh(trainset)
+        
+        return trainset
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating trainset: {str(e)}"
+        )
+
+@router.delete("/trainsets/{trainset_id}")
+async def delete_trainset(
+    trainset_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_management)
+):
+    """Delete a trainset and all related data.
+    
+    Access: Management only
+    """
+    try:
+        trainset = db.query(Trainset).filter(Trainset.id == trainset_id).first()
+        if not trainset:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Trainset not found"
+            )
+        
+        trainset_number = trainset.number
+        
+        # Delete related data first (foreign key constraints)
+        db.query(CleaningSlot).filter(CleaningSlot.trainset_id == trainset_id).delete()
+        db.query(MileageRecord).filter(MileageRecord.trainset_id == trainset_id).delete()
+        db.query(BrandingPriority).filter(BrandingPriority.trainset_id == trainset_id).delete()
+        db.query(JobCard).filter(JobCard.trainset_id == trainset_id).delete()
+        db.query(FitnessCertificate).filter(FitnessCertificate.trainset_id == trainset_id).delete()
+        
+        # Delete the trainset
+        db.delete(trainset)
+        db.commit()
+        
+        return {
+            "message": f"Trainset {trainset_number} and all related data deleted successfully"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error deleting trainset: {str(e)}"
+        )
 @router.get("/trainsets", response_model=List[TrainsetResponse])
 async def get_all_trainsets(
     db: Session = Depends(get_db),
