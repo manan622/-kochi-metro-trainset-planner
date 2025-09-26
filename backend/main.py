@@ -17,6 +17,18 @@ async def lifespan(app: FastAPI):
     # Create database tables
     models.Base.metadata.create_all(bind=engine)
     
+    # Initialize dummy users for authentication
+    print("Creating dummy users...")
+    try:
+        from app.services.auth_service import create_dummy_users
+        db = SessionLocal()
+        create_dummy_users(db)
+        db.close()
+        print("✅ Dummy users created successfully")
+        print("Login credentials: admin/admin123, inspector/inspect123, worker/work123")
+    except Exception as e:
+        print(f"❌ Error creating dummy users: {e}")
+    
     # Initialize AI services
     print("Starting AI service initialization in lifespan...")
     
